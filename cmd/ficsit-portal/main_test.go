@@ -121,4 +121,22 @@ func TestPortalEndpoints(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(body, "BinaryNexus") || !strings.Contains(body, "MotorFactory") || !strings.Contains(body, "2h 00m") {
 		t.Fatalf("dashboard missing expected pioneer, blueprint, or playtime content")
 	}
+	if !strings.Contains(body, `<link rel="icon" type="image/svg+xml" href="/favicon.svg">`) {
+		t.Fatalf("dashboard missing favicon link tag")
+	}
+
+	// 7. /favicon.svg & /favicon.ico
+	for _, p := range []string{"/favicon.svg", "/favicon.ico"} {
+		frec := httptest.NewRecorder()
+		handler.ServeHTTP(frec, httptest.NewRequest(http.MethodGet, p, nil))
+		if frec.Code != http.StatusOK {
+			t.Fatalf("expected 200 on %s, got %d", p, frec.Code)
+		}
+		if frec.Header().Get("Content-Type") != "image/svg+xml" {
+			t.Fatalf("expected image/svg+xml on %s, got %s", p, frec.Header().Get("Content-Type"))
+		}
+		if !strings.Contains(frec.Body.String(), "<svg") {
+			t.Fatalf("expected svg content on %s", p)
+		}
+	}
 }

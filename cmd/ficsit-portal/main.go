@@ -42,6 +42,35 @@ type PortalServer struct {
 	apiClient *api.Client
 }
 
+const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="cog" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fa8029"/>
+      <stop offset="100%" stop-color="#e06c19"/>
+    </linearGradient>
+    <linearGradient id="ficsit-blue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#0f141c"/>
+  <rect x="2" y="2" width="60" height="60" rx="12" fill="none" stroke="#fa8029" stroke-width="2" stroke-opacity="0.35"/>
+  <g fill="url(#cog)" transform="translate(32,32)">
+    <circle r="16"/>
+    <rect x="-4.5" y="-23" width="9" height="9" rx="1.5"/>
+    <rect x="-4.5" y="-23" width="9" height="9" rx="1.5" transform="rotate(45)"/>
+    <rect x="-4.5" y="-23" width="9" height="9" rx="1.5" transform="rotate(90)"/>
+    <rect x="-4.5" y="-23" width="9" height="9" rx="1.5" transform="rotate(135)"/>
+    <rect x="-4.5" y="-23" width="9" height="9" rx="1.5" transform="rotate(180)"/>
+    <rect x="-4.5" y="-23" width="9" height="9" rx="1.5" transform="rotate(225)"/>
+    <rect x="-4.5" y="-23" width="9" height="9" rx="1.5" transform="rotate(270)"/>
+    <rect x="-4.5" y="-23" width="9" height="9" rx="1.5" transform="rotate(315)"/>
+    <circle r="11" fill="#0f141c"/>
+  </g>
+  <!-- FICSIT Blue Checkmark (Isometric Chamfered Chevron) -->
+  <polygon points="20.5,31.5 28.5,39.5 43,24 39,20 28.5,31.5 24.5,27.5" fill="url(#ficsit-blue)"/>
+</svg>`
+
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
@@ -152,6 +181,11 @@ func (s *PortalServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 	switch path {
 	case "/healthz", "/health":
 		s.writeBytes(w, http.StatusOK, "text/plain; charset=utf-8", []byte("OK\n"), sendBody)
+		return
+
+	case "/favicon.ico", "/favicon.svg":
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		s.writeBytes(w, http.StatusOK, "image/svg+xml", []byte(faviconSVG), sendBody)
 		return
 
 	case "/metrics":
@@ -673,6 +707,8 @@ func (s *PortalServer) handleDashboard(w http.ResponseWriter, r *http.Request, s
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+	<link rel="alternate icon" href="/favicon.ico">
 	<title>%s • FICSIT Save, Mod &amp; Blueprint Portal</title>
 	<style>
 		:root {
