@@ -1,0 +1,264 @@
+# =============================================================================
+# Satisfactory Dedicated Server + Mod Manager + Portal Helm Chart
+# =============================================================================
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Pod-level scheduling & security settings
+terminationGracePeriodSeconds: 120
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podSecurityContext:
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+
+# -----------------------------------------------------------------------------
+# 1. Dedicated Game Server Configuration
+# -----------------------------------------------------------------------------
+server:
+  image:
+    repository: ghcr.io/binaryn3xus/satisfactory-server
+    tag: "" # Defaults to .Chart.AppVersion
+    pullPolicy: IfNotPresent
+
+  config:
+    serverName: "Satisfactory Server"
+    gamePort: 7777
+    messagingPort: 8888
+    maxPlayers: 4
+    maxTickRate: 30
+    autoSaveNum: 5
+    autoSaveInterval: 300
+    autoPause: true
+    maxObjects: 2162688
+    timeout: 30
+    serverStreaming: true
+    disableSeasonalEvents: false
+    multihome: ""
+    extraArgs: ""
+
+    steam:
+      branch: "public" # "public", "experimental", or custom beta branch
+      betaPassword: ""
+      updateOnStart: true
+      validate: false
+
+    backupKeepCount: 5
+
+  # Optional Admin API token for pre-shutdown SaveGame & authenticated API calls
+  apiToken:
+    value: ""
+    existingSecret: ""
+    secretKey: "SERVER_API_TOKEN"
+
+  probes:
+    startup:
+      enabled: true
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 90 # Allows up to 15m for initial SteamCMD download + mod sync
+    readiness:
+      enabled: true
+      initialDelaySeconds: 10
+      periodSeconds: 15
+      timeoutSeconds: 5
+      failureThreshold: 3
+    liveness:
+      enabled: true
+      initialDelaySeconds: 30
+      periodSeconds: 30
+      timeoutSeconds: 5
+      failureThreshold: 5
+
+  resources:
+    requests:
+      cpu: "2"
+      memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi
+
+  extraEnv: []
+  extraEnvFrom: []
+
+# -----------------------------------------------------------------------------
+# 2. Declarative Mod Management (ficsit-cli)
+# -----------------------------------------------------------------------------
+mods:
+  enabled: false
+  # When true, blocks FactoryServer.sh from starting if any mod fails to resolve
+  # or is missing its .uplugin after a game update (prevents save corruption).
+  strictMode: true
+  profileName: "UNSC-Section-III"
+  # "always" (resolves newest compatible mod versions in SemVer range) or "locked"
+  updatePolicy: "always"
+
+  # Server + Client mods installed into FactoryGame/Mods via ficsit-cli
+  # Example:
+  #   - ref: NoFuel
+  #     version: latest
+  #   - ref: SmartFoundations
+  #     version: "^2.0.0"
+  items: []
+
+  # Client-only QoL mods bundled into the downloadable .smmprofile for players,
+  # but skipped on the Linux server installation.
+  clientOnlyItems: []
+
+# -----------------------------------------------------------------------------
+# 3. Save, Mod & Blueprint Web Portal Sidecar
+# -----------------------------------------------------------------------------
+portal:
+  enabled: true
+  image:
+    repository: ghcr.io/binaryn3xus/satisfactory-portal
+    tag: "" # Defaults to .Chart.AppVersion
+    pullPolicy: IfNotPresent
+
+  port: 8080
+  # Optional FicsitRemoteMonitoring (FRM) endpoint if FRM mod is installed
+  frmApiUrl: ""
+
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+  service:
+    type: ClusterIP
+    port: 8080
+    annotations: {}
+
+  # Option A: Kubernetes Gateway API HTTPRoute (Cilium, Envoy Gateway, Istio)
+  route:
+    enabled: false
+    annotations: {}
+    parentRefs: []
+    #   - name: envoy-internal
+    #     namespace: network
+    #     sectionName: https
+    hostnames: []
+    #   - satisfactory-saves.example.com
+
+  # Option B: Standard Kubernetes Ingress (NGINX, Traefik, HAProxy)
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts: []
+    #   - host: satisfactory-saves.example.com
+    #     paths:
+    #       - path: /
+    #         pathType: Prefix
+    tls: []
+
+  # Optional Prometheus ServiceMonitor
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+
+# -----------------------------------------------------------------------------
+# 4. L4 Game Server Service
+# -----------------------------------------------------------------------------
+service:
+  game:
+    type: LoadBalancer
+    loadBalancerIP: ""
+    externalTrafficPolicy: Cluster
+    annotations: {}
+
+# -----------------------------------------------------------------------------
+# 5. Optional SFTP Sidecar (For Manual Desktop SMM SFTP Connections)
+# -----------------------------------------------------------------------------
+sftp:
+  enabled: false
+  image:
+    repository: docker.io/atmoz/sftp
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 2222
+  existingSecret: ""
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      memory: 64Mi
+
+# -----------------------------------------------------------------------------
+# 6. TLS Certificates (Mounted to /certs and synced automatically by server)
+# -----------------------------------------------------------------------------
+tls:
+  # Mode 1: Create a cert-manager.io/v1 Certificate resource automatically
+  certManager:
+    enabled: false
+    commonName: ""
+    dnsNames: []
+    duration: 2160h
+    renewBefore: 360h
+    issuerRef:
+      name: ""
+      kind: ClusterIssuer
+
+  # Mode 2: Mount an existing kubernetes.io/tls Secret
+  existingSecret: ""
+
+# -----------------------------------------------------------------------------
+# 7. Persistence (/config)
+# -----------------------------------------------------------------------------
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 50Gi
+  annotations: {}
+
+# -----------------------------------------------------------------------------
+# 8. Off-Site / NFS Scheduled Backup CronJob
+# -----------------------------------------------------------------------------
+backup:
+  enabled: false
+  schedule: "0 */6 * * *"
+  timeZone: "America/New_York"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  image:
+    repository: docker.io/instrumentisto/rsync-ssh
+    tag: alpine
+    pullPolicy: IfNotPresent
+  nfs:
+    server: ""
+    path: ""
+    targetSubDir: "Gaming/Satisfactory"
+
+# -----------------------------------------------------------------------------
+# 9. Discord / Webhook Notifications
+# -----------------------------------------------------------------------------
+notifications:
+  discordWebhookUrl: ""
+  existingSecret: ""
+  secretKey: "DISCORD_WEBHOOK_URL"
+
+# -----------------------------------------------------------------------------
+# 10. Escape Hatch: Arbitrary Kubernetes Manifests (rendered with tpl)
+# -----------------------------------------------------------------------------
+extraObjects: []

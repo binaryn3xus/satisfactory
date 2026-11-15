@@ -1,0 +1,227 @@
+{{- $tlsSecret := include "satisfactory.tlsSecretName" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "satisfactory.fullname" . }}
+  labels:
+    {{- include "satisfactory.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "satisfactory.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "satisfactory.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds | default 120 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: app
+          image: "{{ .Values.server.image.repository }}:{{ .Values.server.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            {{- if .Values.server.apiToken.existingSecret }}
+            - name: SERVER_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.apiToken.existingSecret }}
+                  key: {{ .Values.server.apiToken.secretKey | default "SERVER_API_TOKEN" }}
+            {{- else if .Values.server.apiToken.value }}
+            - name: SERVER_API_TOKEN
+              value: {{ .Values.server.apiToken.value | quote }}
+            {{- end }}
+            {{- if .Values.notifications.existingSecret }}
+            - name: DISCORD_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.notifications.existingSecret }}
+                  key: {{ .Values.notifications.secretKey | default "DISCORD_WEBHOOK_URL" }}
+            {{- end }}
+            {{- with .Values.server.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "satisfactory.fullname" . }}-env
+            {{- with .Values.server.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: game-udp
+              containerPort: {{ .Values.server.config.gamePort }}
+              protocol: UDP
+            - name: game-tcp
+              containerPort: {{ .Values.server.config.gamePort }}
+              protocol: TCP
+            - name: messaging-tcp
+              containerPort: {{ .Values.server.config.messagingPort }}
+              protocol: TCP
+          {{- if .Values.server.probes.startup.enabled }}
+          startupProbe:
+            exec:
+              command: ["ficsit-ctl", "healthcheck"]
+            initialDelaySeconds: {{ .Values.server.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.server.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.server.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.server.probes.startup.failureThreshold }}
+          {{- end }}
+          {{- if .Values.server.probes.readiness.enabled }}
+          readinessProbe:
+            exec:
+              command: ["ficsit-ctl", "healthcheck"]
+            initialDelaySeconds: {{ .Values.server.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.server.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.server.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.server.probes.readiness.failureThreshold }}
+          {{- end }}
+          {{- if .Values.server.probes.liveness.enabled }}
+          livenessProbe:
+            exec:
+              command: ["ficsit-ctl", "healthcheck"]
+            initialDelaySeconds: {{ .Values.server.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.server.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.server.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.server.probes.liveness.failureThreshold }}
+          {{- end }}
+          {{- with .Values.server.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            {{- if $tlsSecret }}
+            - name: certificates
+              mountPath: /certs
+              readOnly: true
+            {{- end }}
+
+        {{- if .Values.portal.enabled }}
+        - name: portal
+          image: "{{ .Values.portal.image.repository }}:{{ .Values.portal.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.portal.image.pullPolicy }}
+          env:
+            - name: PORT
+              value: {{ .Values.portal.port | quote }}
+            - name: SERVER_API_URL
+              value: "https://127.0.0.1:{{ .Values.server.config.gamePort }}"
+            - name: SMM_PROFILE_NAME
+              value: {{ .Values.mods.profileName | quote }}
+            {{- if .Values.portal.frmApiUrl }}
+            - name: FRM_API_URL
+              value: {{ .Values.portal.frmApiUrl | quote }}
+            {{- end }}
+            {{- if .Values.server.apiToken.existingSecret }}
+            - name: SERVER_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.apiToken.existingSecret }}
+                  key: {{ .Values.server.apiToken.secretKey | default "SERVER_API_TOKEN" }}
+            {{- else if .Values.server.apiToken.value }}
+            - name: SERVER_API_TOKEN
+              value: {{ .Values.server.apiToken.value | quote }}
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "satisfactory.fullname" . }}-env
+          ports:
+            - name: http-portal
+              containerPort: {{ .Values.portal.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http-portal
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http-portal
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          {{- with .Values.portal.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.portal.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+        {{- end }}
+
+        {{- if .Values.sftp.enabled }}
+        - name: sftp
+          image: "{{ .Values.sftp.image.repository }}:{{ .Values.sftp.image.tag }}"
+          imagePullPolicy: {{ .Values.sftp.image.pullPolicy }}
+          {{- if .Values.sftp.existingSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.sftp.existingSecret }}
+          {{- end }}
+          ports:
+            - name: sftp
+              containerPort: 22
+              protocol: TCP
+          {{- with .Values.sftp.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /home/ficsit/satisfactory
+        {{- end }}
+
+      volumes:
+        - name: config
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "satisfactory.pvcName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if $tlsSecret }}
+        - name: certificates
+          secret:
+            secretName: {{ $tlsSecret }}
+            items:
+              - key: tls.crt
+                path: cert_chain.pem
+              - key: tls.key
+                path: private_key.pem
+        {{- end }}

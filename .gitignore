@@ -1,0 +1,74 @@
+# =============================================================================
+# Go Binaries, Test & Build Artifacts
+# =============================================================================
+/bin/
+/dist/
+/build/
+/ficsit-ctl
+/ficsit-portal
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+*.pprof
+coverage.txt
+coverage.html
+go.work
+go.work.sum
+
+# =============================================================================
+# Local Docker / Compose Volumes, Secrets & Certificates
+# =============================================================================
+/data/
+/config/
+/certs/
+/backups/
+.env
+.env.*
+!.env.example
+docker-compose.override.yml
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# =============================================================================
+# Satisfactory Game, Save, Blueprint & Mod Artifacts
+# =============================================================================
+*.sav
+*.sbp
+*.sbpcfg
+*.smmprofile
+*.pak
+*.utoc
+*.ucas
+*-lock.json
+*.log
+
+# =============================================================================
+# Helm Chart Packaging & Temporary Files
+# =============================================================================
+*.tgz
+charts/**/charts/
+charts/**/tmpcharts/
+
+# =============================================================================
+# OS, WSL2, Editor & Local Tooling
+# =============================================================================
+.DS_Store
+Thumbs.db
+*:Zone.Identifier
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.direnv/
+.mise.local.toml
+tmp/
+scratch/

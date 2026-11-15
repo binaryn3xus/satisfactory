@@ -1,0 +1,59 @@
+services:
+  satisfactory-server:
+    build:
+      context: .
+      dockerfile: images/satisfactory-server/Dockerfile
+    image: ghcr.io/binaryn3xus/satisfactory-server:latest
+    container_name: satisfactory-server
+    restart: unless-stopped
+    stop_grace_period: 90s
+    ports:
+      - "${SERVER_GAME_PORT:-7777}:${SERVER_GAME_PORT:-7777}/udp"
+      - "${SERVER_GAME_PORT:-7777}:${SERVER_GAME_PORT:-7777}/tcp"
+      - "${SERVER_MESSAGING_PORT:-8888}:${SERVER_MESSAGING_PORT:-8888}/tcp"
+    environment:
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+      SERVER_NAME: "${SERVER_NAME:-UNSC-Section-III}"
+      SERVER_GAME_PORT: "${SERVER_GAME_PORT:-7777}"
+      SERVER_MESSAGING_PORT: "${SERVER_MESSAGING_PORT:-8888}"
+      MAX_PLAYERS: "${MAX_PLAYERS:-8}"
+      MAX_TICK_RATE: "${MAX_TICK_RATE:-30}"
+      AUTOSAVE_NUM: "${AUTOSAVE_NUM:-5}"
+      AUTOSAVE_INTERVAL: "${AUTOSAVE_INTERVAL:-300}"
+      AUTO_PAUSE: "${AUTO_PAUSE:-true}"
+      STEAM_BRANCH: "${STEAM_BRANCH:-public}"
+      STEAM_UPDATE_ON_START: "${STEAM_UPDATE_ON_START:-true}"
+      BACKUP_KEEP_COUNT: "${BACKUP_KEEP_COUNT:-5}"
+      MODS_ENABLED: "${MODS_ENABLED:-false}"
+      MODS_STRICT_MODE: "${MODS_STRICT_MODE:-true}"
+      MODS_PROFILE: "${MODS_PROFILE:-UNSC-Section-III}"
+      MODS_UPDATE_POLICY: "${MODS_UPDATE_POLICY:-always}"
+      MODS_LIST: "${MODS_LIST:-}"
+      DISCORD_WEBHOOK_URL: "${DISCORD_WEBHOOK_URL:-}"
+    volumes:
+      - ./data:/config
+      # Optional: Mount custom TLS certificates (tls.crt/tls.key or cert_chain.pem/private_key.pem)
+      # - ./certs:/certs:ro
+
+  satisfactory-portal:
+    profiles: ["portal"]
+    build:
+      context: .
+      dockerfile: images/satisfactory-portal/Dockerfile
+    image: ghcr.io/binaryn3xus/satisfactory-portal:latest
+    container_name: satisfactory-portal
+    restart: unless-stopped
+    ports:
+      - "${PORTAL_PORT:-8080}:8080/tcp"
+    environment:
+      PORT: "8080"
+      SERVER_API_URL: "https://satisfactory-server:${SERVER_GAME_PORT:-7777}"
+      SMM_PROFILE_NAME: "${MODS_PROFILE:-UNSC-Section-III}"
+      MODS_CLIENT_ONLY: "${MODS_CLIENT_ONLY:-}"
+      SAVES_DIR: "/config/saved/server"
+      BLUEPRINTS_DIR: "/config/saved/blueprints"
+      MODS_DIR: "/config/gamefiles/FactoryGame/Mods"
+      GAMEFILES_DIR: "/config/gamefiles"
+    volumes:
+      - ./data:/config:ro

@@ -1,0 +1,22 @@
+apiVersion: v2
+name: satisfactory
+description: Container-native Satisfactory Dedicated Server with declarative ficsit-cli Mod Manager, Save/Blueprint Web Portal, and World-Protection Gate
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/binaryn3xus/satisfactory
+sources:
+  - https://github.com/binaryn3xus/satisfactory
+keywords:
+  - satisfactory
+  - gaming
+  - dedicated-server
+  - ficsit
+  - smm
+  - mods
+maintainers:
+  - name: binaryn3xus
+    url: https://github.com/binaryn3xus
+annotations:
+  org.opencontainers.image.source: https://github.com/binaryn3xus/satisfactory
+  org.opencontainers.image.licenses: MIT

@@ -1,0 +1,71 @@
+{{- if .Values.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "satisfactory.fullname" . }}-backup
+  labels:
+    {{- include "satisfactory.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  {{- if .Values.backup.timeZone }}
+  timeZone: {{ .Values.backup.timeZone | quote }}
+  {{- end }}
+  concurrencyPolicy: {{ .Values.backup.concurrencyPolicy | default "Forbid" }}
+  successfulJobsHistoryLimit: {{ .Values.backup.successfulJobsHistoryLimit | default 1 }}
+  failedJobsHistoryLimit: {{ .Values.backup.failedJobsHistoryLimit | default 1 }}
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 3600
+      template:
+        spec:
+          restartPolicy: OnFailure
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: sync
+              image: "{{ .Values.backup.image.repository }}:{{ .Values.backup.image.tag }}"
+              imagePullPolicy: {{ .Values.backup.image.pullPolicy }}
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  TARGET="/media/{{ .Values.backup.nfs.targetSubDir }}"
+                  mkdir -p "$TARGET"
+                  echo "Syncing Satisfactory saves to $TARGET..."
+                  rsync -rltvz --ignore-errors --no-owner --no-group --no-perms \
+                    --exclude="blueprints" \
+                    /satisfactory/saved/server/ \
+                    "$TARGET/"
+                  for f in /satisfactory/saved/ServerSettings.*.sav; do
+                    if [ -f "$f" ]; then
+                      cp -p "$f" "$TARGET/" 2>/dev/null || true
+                    fi
+                  done
+                  if [ -d /satisfactory/saved/blueprints ]; then
+                    mkdir -p "$TARGET/blueprints"
+                    rsync -rltvz --ignore-errors --no-owner --no-group --no-perms \
+                      /satisfactory/saved/blueprints/ \
+                      "$TARGET/blueprints/"
+                  fi
+                  echo "Backup complete!"
+              volumeMounts:
+                - name: satisfactory-data
+                  mountPath: /satisfactory
+                  readOnly: true
+                - name: nfs-target
+                  mountPath: /media
+          volumes:
+            - name: satisfactory-data
+              persistentVolumeClaim:
+                claimName: {{ include "satisfactory.pvcName" . }}
+            - name: nfs-target
+              nfs:
+                server: {{ .Values.backup.nfs.server | quote }}
+                path: {{ .Values.backup.nfs.path | quote }}
+{{- end }}

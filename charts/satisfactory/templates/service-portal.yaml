@@ -1,0 +1,21 @@
+{{- if .Values.portal.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "satisfactory.fullname" . }}-saves
+  labels:
+    {{- include "satisfactory.labels" . | nindent 4 }}
+  {{- with .Values.portal.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.portal.service.type | default "ClusterIP" }}
+  ports:
+    - name: http
+      port: {{ .Values.portal.service.port | default 8080 }}
+      targetPort: http-portal
+      protocol: TCP
+  selector:
+    {{- include "satisfactory.selectorLabels" . | nindent 4 }}
+{{- end }}

@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "satisfactory.fullname" . }}-env
+  labels:
+    {{- include "satisfactory.labels" . | nindent 4 }}
+data:
+  SERVER_NAME: {{ .Values.server.config.serverName | quote }}
+  SERVER_GAME_PORT: {{ .Values.server.config.gamePort | quote }}
+  SERVER_MESSAGING_PORT: {{ .Values.server.config.messagingPort | quote }}
+  MAX_PLAYERS: {{ .Values.server.config.maxPlayers | quote }}
+  MAX_TICK_RATE: {{ .Values.server.config.maxTickRate | quote }}
+  AUTOSAVE_NUM: {{ .Values.server.config.autoSaveNum | quote }}
+  AUTOSAVE_INTERVAL: {{ .Values.server.config.autoSaveInterval | quote }}
+  AUTO_PAUSE: {{ .Values.server.config.autoPause | quote }}
+  MAX_OBJECTS: {{ .Values.server.config.maxObjects | quote }}
+  TIMEOUT: {{ .Values.server.config.timeout | quote }}
+  SERVER_STREAMING: {{ .Values.server.config.serverStreaming | quote }}
+  DISABLE_SEASONAL_EVENTS: {{ .Values.server.config.disableSeasonalEvents | quote }}
+  {{- if .Values.server.config.multihome }}
+  MULTIHOME: {{ .Values.server.config.multihome | quote }}
+  {{- end }}
+  {{- if .Values.server.config.extraArgs }}
+  EXTRA_SERVER_ARGS: {{ .Values.server.config.extraArgs | quote }}
+  {{- end }}
+  STEAM_BRANCH: {{ .Values.server.config.steam.branch | quote }}
+  STEAM_UPDATE_ON_START: {{ .Values.server.config.steam.updateOnStart | quote }}
+  STEAM_VALIDATE: {{ .Values.server.config.steam.validate | quote }}
+  BACKUP_KEEP_COUNT: {{ .Values.server.config.backupKeepCount | quote }}
+  MODS_ENABLED: {{ .Values.mods.enabled | quote }}
+  MODS_STRICT_MODE: {{ .Values.mods.strictMode | quote }}
+  MODS_PROFILE: {{ .Values.mods.profileName | quote }}
+  MODS_UPDATE_POLICY: {{ .Values.mods.updatePolicy | quote }}
+  {{- if .Values.mods.items }}
+  MODS_LIST: |
+    {{- range .Values.mods.items }}
+    {{ .ref }}@{{ default "latest" .version }}
+    {{- end }}
+  {{- end }}
+  {{- if .Values.mods.clientOnlyItems }}
+  MODS_CLIENT_ONLY: |
+    {{- range .Values.mods.clientOnlyItems }}
+    {{ .ref }}@{{ default "latest" .version }}
+    {{- end }}
+  {{- end }}
+  {{- if and .Values.notifications.discordWebhookUrl (not .Values.notifications.existingSecret) }}
+  DISCORD_WEBHOOK_URL: {{ .Values.notifications.discordWebhookUrl | quote }}
+  {{- end }}
