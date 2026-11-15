@@ -53,7 +53,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        else \
          usermod -o -u 1000 -g 1000 steam; \
        fi \
-    && mkdir -p /config /certs /home/steam \
+    && mkdir -p /config /certs /home/steam/.local/share/Steam \
+    && if [ -d /root/.local/share/Steam ]; then \
+         cp -a /root/.local/share/Steam/. /home/steam/.local/share/Steam/; \
+       fi \
     && chown -R 1000:1000 /config /home/steam
 
 COPY --from=builder /out/ficsit-ctl /usr/local/bin/ficsit-ctl

@@ -198,7 +198,11 @@ if [ "$NEED_STEAM_UPDATE" = "true" ]; then
     STEAM_ARGS+=("+quit")
 
     echo "==> Running SteamCMD update..."
-    steamcmd "${STEAM_ARGS[@]}"
+    if ! steamcmd "${STEAM_ARGS[@]}"; then
+        echo "==> SteamCMD returned an error on first attempt (refreshing appcache and retrying once)..."
+        rm -rf "$HOME/.local/share/Steam/appcache" 2>/dev/null || true
+        steamcmd "${STEAM_ARGS[@]}"
+    fi
 
     NEW_CL="$(ficsit-ctl detect-changelist 2>/dev/null || echo "")"
     if [ -n "$OLD_CL" ] && [ -n "$NEW_CL" ] && [ "$OLD_CL" != "$NEW_CL" ]; then
