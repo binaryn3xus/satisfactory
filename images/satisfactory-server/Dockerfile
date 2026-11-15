@@ -36,6 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
         gosu \
+        iproute2 \
         jq \
         libatomic1 \
         libcurl4 \

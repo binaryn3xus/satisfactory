@@ -1,0 +1,173 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "SemVer version to release (e.g. 0.1.0 or v0.1.0). Leave blank to use Chart.yaml."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: binaryn3xus
+
+jobs:
+  test-and-lint:
+    name: Go Tests & Helm Lint
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      - name: Run Go Unit Tests
+        run: go test -v -race ./...
+
+      - name: Verify Helm
+        run: |
+          command -v helm >/dev/null 2>&1 || curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          helm version
+
+      - name: Lint Helm Chart
+        run: helm lint charts/satisfactory
+
+  resolve-version:
+    name: Resolve Release Version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      tag: ${{ steps.ver.outputs.tag }}
+      major: ${{ steps.ver.outputs.major }}
+      major_minor: ${{ steps.ver.outputs.major_minor }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Parse SemVer Version
+        id: ver
+        run: |
+          RAW_VER=""
+          if [ -n "${{ inputs.version }}" ]; then
+            RAW_VER="${{ inputs.version }}"
+          elif [ -n "${{ github.event.release.tag_name }}" ]; then
+            RAW_VER="${{ github.event.release.tag_name }}"
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            RAW_VER="${GITHUB_REF#refs/tags/}"
+          else
+            RAW_VER="$(awk -F': ' '/^version:/ {print $2}' charts/satisfactory/Chart.yaml | tr -d ' "\r')"
+          fi
+
+          CLEAN_VER="${RAW_VER#v}"
+          if [[ -z "$CLEAN_VER" ]]; then
+            echo "Error: Could not determine release version" >&2
+            exit 1
+          fi
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CLEAN_VER"
+          echo "version=${CLEAN_VER}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${CLEAN_VER}" >> "$GITHUB_OUTPUT"
+          echo "major=${MAJOR}" >> "$GITHUB_OUTPUT"
+          echo "major_minor=${MAJOR}.${MINOR}" >> "$GITHUB_OUTPUT"
+
+          echo "Target Release Version: ${CLEAN_VER} (Tag: v${CLEAN_VER})"
+
+  publish-images:
+    name: Build & Push Images (${{ matrix.component }})
+    needs: [test-and-lint, resolve-version]
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - component: satisfactory-server
+            dockerfile: images/satisfactory-server/Dockerfile
+          - component: satisfactory-portal
+            dockerfile: images/satisfactory-portal/Dockerfile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.component }}
+          tags: |
+            type=raw,value=${{ needs.resolve-version.outputs.version }}
+            type=raw,value=${{ needs.resolve-version.outputs.major_minor }}
+            type=raw,value=${{ needs.resolve-version.outputs.major }}
+            type=raw,value=latest
+            type=sha,prefix=sha-
+
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+
+  publish-chart:
+    name: Package & Push OCI Helm Chart
+    needs: [test-and-lint, resolve-version, publish-images]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify Helm
+        run: |
+          command -v helm >/dev/null 2>&1 || curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          helm version
+
+      - name: Log in to GHCR for Helm OCI
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} -u "${{ github.actor }}" --password-stdin
+
+      - name: Package & Push Chart
+        env:
+          VER: ${{ needs.resolve-version.outputs.version }}
+        run: |
+          echo "Packaging chart version $VER..."
+          helm package charts/satisfactory --version "$VER" --app-version "$VER"
+          echo "Pushing chart to OCI registry..."
+          helm push "satisfactory-${VER}.tgz" "oci://${{ env.REGISTRY }}/${{ env.OWNER }}/charts"
+
+      - name: Upload Chart Asset to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve-version.outputs.tag }}
+          VER: ${{ needs.resolve-version.outputs.version }}
+        run: |
+          CHART_PACKAGE="satisfactory-${VER}.tgz"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Uploading $CHART_PACKAGE to release $TAG..."
+            gh release upload "$TAG" "$CHART_PACKAGE" --clobber
+          else
+            echo "GitHub release $TAG does not exist yet. Creating release $TAG..."
+            gh release create "$TAG" "$CHART_PACKAGE" --title "$TAG" --generate-notes || true
+          fi

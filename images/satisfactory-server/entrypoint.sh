@@ -261,6 +261,17 @@ fi
 cd "$GAMEFILES_DIR"
 chmod +x FactoryServer.sh || true
 
+# Ensure target game port is free before launching to prevent Unreal Engine from bumping the HTTPS port (e.g. 7778 -> 7779)
+if command -v ss >/dev/null 2>&1; then
+    for i in $(seq 1 15); do
+        if ! ss -tuln | grep -qE "[: ]${SERVER_GAME_PORT}[[:space:]]"; then
+            break
+        fi
+        echo "==> Port ${SERVER_GAME_PORT} is currently busy or lingering. Waiting for socket to clear ($i/15)..."
+        sleep 1
+    done
+fi
+
 echo "==> Launching Satisfactory Dedicated Server on UDP/TCP ${SERVER_GAME_PORT} (Messaging TCP ${SERVER_MESSAGING_PORT})..."
 ./FactoryServer.sh "${INI_ARGS[@]}" "$@" &
 WRAPPER_PID=$!
