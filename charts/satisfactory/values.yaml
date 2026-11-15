@@ -39,6 +39,7 @@ server:
     timeout: 30
     serverStreaming: true
     disableSeasonalEvents: false
+    allowInsecureLocalAccess: true
     multihome: ""
     extraArgs: ""
 

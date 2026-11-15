@@ -17,6 +17,7 @@ data:
   TIMEOUT: {{ .Values.server.config.timeout | quote }}
   SERVER_STREAMING: {{ .Values.server.config.serverStreaming | quote }}
   DISABLE_SEASONAL_EVENTS: {{ .Values.server.config.disableSeasonalEvents | quote }}
+  ALLOW_INSECURE_LOCAL_ACCESS: {{ default true .Values.server.config.allowInsecureLocalAccess | quote }}
   {{- if .Values.server.config.multihome }}
   MULTIHOME: {{ .Values.server.config.multihome | quote }}
   {{- end }}

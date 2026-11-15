@@ -43,6 +43,7 @@ export TIMEOUT="${TIMEOUT:-30}"
 export SERVER_STREAMING="${SERVER_STREAMING:-${SERVERSTREAMING:-true}}"
 export AUTO_PAUSE="${AUTO_PAUSE:-true}"
 export DISABLE_SEASONAL_EVENTS="${DISABLE_SEASONAL_EVENTS:-${DISABLESEASONALEVENTS:-false}}"
+export ALLOW_INSECURE_LOCAL_ACCESS="${ALLOW_INSECURE_LOCAL_ACCESS:-true}"
 
 if [ -z "${STEAM_BRANCH:-}" ]; then
     if [ "${STEAMBETA:-false}" = "true" ]; then
@@ -245,6 +246,10 @@ INI_ARGS=(
 
 if [[ "${DISABLE_SEASONAL_EVENTS,,}" == "true" ]]; then
     INI_ARGS+=("-DisableSeasonalEvents")
+fi
+
+if [[ "${ALLOW_INSECURE_LOCAL_ACCESS,,}" == "true" ]]; then
+    INI_ARGS+=("-ini:Engine:[SystemSettings]:FG.DedicatedServer.AllowInsecureLocalAccess=1")
 fi
 
 if [[ -n "${MULTIHOME:-}" ]]; then
