@@ -398,6 +398,9 @@ func (s *PortalServer) handleAdmin(w http.ResponseWriter, r *http.Request, sendB
 			<span style="font-size:0.78rem; background:rgba(250,128,41,0.2); color:var(--accent-primary); border:1px solid rgba(250,128,41,0.4); padding:2px 8px; border-radius:12px;">Privileged</span>
 		</div>
 		<div class="admin-nav">
+			<span id="admin-changes-badge" style="display:none; background:var(--accent-primary); color:#fff; font-size:0.75rem; font-weight:700; padding:3px 9px; border-radius:12px;"></span>
+			<button class="btn btn-primary" onclick="FicsitAdmin.saveToServer()" id="admin-save-btn">💾 Save to Server</button>
+			<button class="btn btn-secondary" onclick="FicsitAdmin.downloadSave()">⬇️ Export .sav</button>
 			<a href="/" class="btn btn-secondary">⬅ View Public Portal</a>
 			%s
 		</div>
@@ -407,13 +410,13 @@ func (s *PortalServer) handleAdmin(w http.ResponseWriter, r *http.Request, sendB
 		<div class="save-picker-bar">
 			<div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
 				<strong>Active Save File:</strong>
-				<select id="admin-save-select" class="save-select">
+				<select id="admin-save-select" class="save-select" onchange="loadSelectedSave()">
 					%s
 				</select>
 				<button class="btn btn-secondary" onclick="loadSelectedSave()">🔄 Reload Save</button>
 			</div>
 			<div style="font-size:0.85rem; color:var(--text-muted);">
-				Full Save Doctor, Pioneer Care Packages &amp; Direct Server Commit
+				Visual Inventory Manager &bull; Save Doctor &bull; Direct Server Commit
 			</div>
 		</div>
 
@@ -432,8 +435,8 @@ func (s *PortalServer) handleAdmin(w http.ResponseWriter, r *http.Request, sendB
 			const opt = sel.options[sel.selectedIndex];
 			const url = opt.value;
 			const name = opt.getAttribute('data-name');
-			if (window.FicsitInspector && window.FicsitInspector.openAdminWorkspace) {
-				window.FicsitInspector.openAdminWorkspace(url, name, 'admin-workspace');
+			if (window.FicsitAdmin && window.FicsitAdmin.init) {
+				window.FicsitAdmin.init(url, name, 'admin-workspace');
 			}
 		}
 
