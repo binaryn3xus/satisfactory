@@ -231,6 +231,31 @@ func TestAdminAuthAndUpload(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(savesDir, "test_world.sav")); err != nil {
 		t.Fatalf("expected uploaded save file to exist on disk: %v", err)
 	}
+
+	// 6. Overwrite save file and verify backup is a valid .sav file (not .bak)
+	testSavContent2 := make([]byte, 1024)
+	copy(testSavContent2, []byte("GVAS-TEST-SAVE-CONTENT-V2"))
+	recUp2 := httptest.NewRecorder()
+	reqUp2 := httptest.NewRequest(http.MethodPost, "/admin/api/upload-save?filename=test_world.sav", bytes.NewReader(testSavContent2))
+	reqUp2.AddCookie(cookie)
+	handler.ServeHTTP(recUp2, reqUp2)
+	if recUp2.Code != http.StatusOK {
+		t.Fatalf("expected 200 on second upload save, got %d: %s", recUp2.Code, recUp2.Body.String())
+	}
+	var resObj map[string]any
+	if err := json.Unmarshal(recUp2.Body.Bytes(), &resObj); err != nil {
+		t.Fatalf("expected valid JSON response: %v", err)
+	}
+	backupName, _ := resObj["backup"].(string)
+	if !strings.HasSuffix(backupName, "-backup.sav") {
+		t.Fatalf("expected backup to end with -backup.sav, got: %s", backupName)
+	}
+	if strings.Contains(backupName, ".bak") {
+		t.Fatalf("expected backup NOT to contain .bak, got: %s", backupName)
+	}
+	if _, err := os.Stat(filepath.Join(savesDir, backupName)); err != nil {
+		t.Fatalf("expected backup file %s to exist on disk: %v", backupName, err)
+	}
 }
 
 func TestCustomMapSCIMWarning(t *testing.T) {

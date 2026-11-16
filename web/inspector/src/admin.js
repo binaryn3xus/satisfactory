@@ -2,27 +2,33 @@
 // FICSIT Admin Control Center - Purpose-Built Management Workstation
 // =============================================================================
 
-export function friendlyItemName(path) {
-    if (!path) return 'Empty';
-    const name = path.split('.').pop().replace(/^Desc_/, '').replace(/_C$/, '');
-    const overrides = {
-        'Cement': 'Concrete',
-        'ResourceSinkCoupon': 'FICSIT Coupon',
-        'WAT1': 'Mercer Sphere',
-        'WAT2': 'Somersloop',
-        'CrystalShard': 'Power Shard',
-        'LiquidOil': 'Crude Oil',
-        'SpaceElevatorPart_1': 'Smart Plating',
-        'SpaceElevatorPart_2': 'Versatile Framework',
-        'SpaceElevatorPart_3': 'Automated Wiring',
-        'SpaceElevatorPart_4': 'Modular Engine',
-        'SpaceElevatorPart_5': 'Adaptive Control Unit',
-        'CircuitBoardHighSpeed': 'High-Speed Circuit',
-        'IronPlateReinforced': 'Reinforced Plate',
-        'HighSpeedWire': 'Quickwire'
-    };
-    if (overrides[name]) return overrides[name];
-    return name.replace(/([a-z])([A-Z])/g, '$1 $2');
+import { friendlyItemName, getAllAvailableItems, scanSaveForItemDescriptors } from './items.js';
+export { friendlyItemName, getAllAvailableItems, scanSaveForItemDescriptors };
+
+export function formatSatisfactoryDate(date = new Date()) {
+    const pad = (n) => String(n).padStart(2, '0');
+    const dd = pad(date.getDate());
+    const mm = pad(date.getMonth() + 1);
+    const yy = String(date.getFullYear()).slice(-2);
+    const HH = pad(date.getHours());
+    const MM = pad(date.getMinutes());
+    const ss = pad(date.getSeconds());
+    return `${dd}${mm}${yy}-${HH}${MM}${ss}`;
+}
+
+export function generatePortalSaveName(save, currentFilename) {
+    let serverOrSession = save?.header?.sessionName || '';
+    if (!serverOrSession && currentFilename) {
+        const base = currentFilename.replace(/\.sav$/i, '');
+        const match = base.match(/^([^_]+)/);
+        serverOrSession = match ? match[1] : base;
+    }
+    if (!serverOrSession) {
+        serverOrSession = 'Satisfactory-Server';
+    }
+    serverOrSession = serverOrSession.replace(/[<>:"/\\|?*]/g, '').trim().replace(/\s+/g, '-');
+    const dateStr = formatSatisfactoryDate(new Date());
+    return `${serverOrSession}-${dateStr}-portalsave.sav`;
 }
 
 export function findPioneerInventory(targetPioneer, save) {
@@ -100,7 +106,139 @@ export function createInventoryItemStruct(itemPath) {
     };
 }
 
-export function renderAdminWorkspaceHTML({ data, activePioneerName, unsavedChanges, noticeMsg, showRawEditor, selectedRawObj, rawCategory, rawQuery, rawFilteredObjects }) {
+export function createRespawnInventoryStruct(slotCount = 63) {
+    const emptyStacks = [];
+    for (let i = 0; i < slotCount; i++) {
+        emptyStacks.push({
+            type: 'InventoryStack',
+            properties: {
+                Item: createInventoryItemStruct(''),
+                NumItems: {
+                    type: 'IntProperty',
+                    name: 'NumItems',
+                    propertyTagType: { name: 'IntProperty', children: [] },
+                    value: 0
+                }
+            }
+        });
+    }
+
+    const createEquipmentHolder = (count) => {
+        const eqStacks = [];
+        for (let i = 0; i < count; i++) {
+            eqStacks.push({
+                type: 'InventoryStack',
+                properties: {
+                    Item: createInventoryItemStruct(''),
+                    NumItems: {
+                        type: 'IntProperty',
+                        name: 'NumItems',
+                        propertyTagType: { name: 'IntProperty', children: [] },
+                        value: 0
+                    }
+                }
+            });
+        }
+        return {
+            type: 'StructProperty',
+            properties: {
+                mArrayOfInventoryStacks: {
+                    type: 'ArrayProperty',
+                    name: 'mArrayOfInventoryStacks',
+                    propertyTagType: {
+                        name: 'ArrayProperty',
+                        children: [{
+                            name: 'StructProperty',
+                            children: [{
+                                name: 'InventoryStack',
+                                children: [{ name: '/Script/FactoryGame', children: [] }]
+                            }]
+                        }]
+                    },
+                    values: eqStacks
+                }
+            }
+        };
+    };
+
+    return {
+        type: 'StructProperty',
+        name: 'mInventoryToRespawnWith',
+        propertyTagType: {
+            name: 'StructProperty',
+            children: [{
+                name: 'InventoryToRespawnWith',
+                children: [{ name: '/Script/FactoryGame', children: [] }]
+            }]
+        },
+        value: {
+            type: 'InventoryToRespawnWith',
+            properties: {
+                mInventoryStacks: {
+                    type: 'ArrayProperty',
+                    name: 'mInventoryStacks',
+                    propertyTagType: {
+                        name: 'ArrayProperty',
+                        children: [{
+                            name: 'StructProperty',
+                            children: [{
+                                name: 'InventoryStack',
+                                children: [{ name: '/Script/FactoryGame', children: [] }]
+                            }]
+                        }]
+                    },
+                    values: emptyStacks
+                },
+                mEquipmentPairs: {
+                    type: 'MapProperty',
+                    name: 'mEquipmentPairs',
+                    propertyTagType: {
+                        name: 'MapProperty',
+                        children: [
+                            {
+                                name: 'EnumProperty',
+                                children: [
+                                    { name: 'EEquipmentSlot', children: [{ name: '/Script/FactoryGame', children: [] }] },
+                                    { name: 'ByteProperty', children: [] }
+                                ]
+                            },
+                            {
+                                name: 'StructProperty',
+                                children: [
+                                    { name: 'ArrayOfInventoryStacksHolder', children: [{ name: '/Script/FactoryGame', children: [] }] }
+                                ]
+                            }
+                        ]
+                    },
+                    numElementsToRemove: 0,
+                    values: [
+                        ['EEquipmentSlot::ES_ARMS', createEquipmentHolder(4)],
+                        ['EEquipmentSlot::ES_BACK', createEquipmentHolder(1)],
+                        ['EEquipmentSlot::ES_LEGS', createEquipmentHolder(1)],
+                        ['EEquipmentSlot::ES_HEAD', createEquipmentHolder(1)],
+                        ['EEquipmentSlot::ES_BODY', createEquipmentHolder(1)]
+                    ]
+                }
+            }
+        }
+    };
+}
+
+export function renderAdminWorkspaceHTML({ 
+    data, 
+    activePioneerName, 
+    unsavedChanges, 
+    noticeMsg, 
+    showRawEditor, 
+    selectedRawObj, 
+    rawCategory, 
+    rawQuery, 
+    rawFilteredObjects,
+    careCategory = 'all',
+    careSearchQuery = '',
+    careSelectedItemPath = '',
+    careQty = 50
+}) {
     const { header, pioneers, rawPlayerStates, totalClones, worldInfo } = data;
     const corruptPlayers = rawPlayerStates.filter(p => p.hasCorruptRespawn);
 
@@ -149,6 +287,43 @@ export function renderAdminWorkspaceHTML({ data, activePioneerName, unsavedChang
 
     const percentFull = totalSlots > 0 ? Math.round((occupiedCount / totalSlots) * 100) : 0;
 
+    const availableItems = getAllAvailableItems(data.rawSave);
+    const categories = Array.from(new Set(availableItems.map(i => i.category))).sort();
+
+    const effectiveCategory = careCategory || 'all';
+    const effectiveSearch = (careSearchQuery || '').toLowerCase().trim();
+
+    const filteredCareItems = availableItems.filter(item => {
+        if (effectiveCategory !== 'all' && item.category !== effectiveCategory) return false;
+        if (effectiveSearch) {
+            const matchesName = item.name.toLowerCase().includes(effectiveSearch);
+            const matchesPath = item.path.toLowerCase().includes(effectiveSearch);
+            const matchesCat = item.category.toLowerCase().includes(effectiveSearch);
+            if (!matchesName && !matchesPath && !matchesCat) return false;
+        }
+        return true;
+    });
+
+    const careGrouped = {};
+    for (const item of filteredCareItems) {
+        if (!careGrouped[item.category]) careGrouped[item.category] = [];
+        careGrouped[item.category].push(item);
+    }
+
+    let careOptionsHTML = '';
+    const selectedItemPath = careSelectedItemPath || (filteredCareItems[0] ? filteredCareItems[0].path : '');
+    for (const [catName, catItems] of Object.entries(careGrouped)) {
+        careOptionsHTML += `<optgroup label="${catName}">`;
+        for (const item of catItems) {
+            const isSel = item.path === selectedItemPath;
+            careOptionsHTML += `<option value="${item.path}" data-qty="${item.defaultQty}" ${isSel ? 'selected' : ''}>${item.icon} ${item.name} (${item.defaultQty}x)</option>`;
+        }
+        careOptionsHTML += `</optgroup>`;
+    }
+    if (filteredCareItems.length === 0) {
+        careOptionsHTML = `<option disabled value="">No items match "${careSearchQuery}"</option>`;
+    }
+
     return `
     <div style="display:flex; flex-direction:column; gap:1.25rem;">
         ${noticeBanner}
@@ -164,7 +339,7 @@ export function renderAdminWorkspaceHTML({ data, activePioneerName, unsavedChang
                     </div>
                     <div style="font-size:0.82rem; color:var(--text-muted); margin-top:0.35rem;">
                         ${corruptPlayers.length > 0 
-                            ? `<span style="color:#f87171;">Found ${corruptPlayers.length} player(s) (${corruptPlayers.map(p => p.name).join(', ')}) with 63-slot crashing respawn tables!</span>` 
+                            ? `<span style="color:#f87171;">Found ${corruptPlayers.length} player(s) (${corruptPlayers.map(p => p.name).join(', ')}) with corrupted respawn tables!</span>` 
                             : 'All player respawn tables are healthy. No connection-crash bugs detected.'}
                     </div>
                 </div>
@@ -227,8 +402,8 @@ export function renderAdminWorkspaceHTML({ data, activePioneerName, unsavedChang
                     <div>
                         <h3 style="margin:0; font-size:1.15rem; color:#fff; display:flex; align-items:center; gap:0.5rem;">
                             <span>👷 ${activePioneer?.name}</span>
-                            <span style="font-size:0.75rem; background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.3); padding:2px 8px; border-radius:10px;">
-                                ${activePioneer?.primaryState?.hasPawn ? 'Active In-World' : 'Offline'}
+                            <span style="font-size:0.75rem; background:${activePioneer?.primaryState?.hasPawn ? 'rgba(34,197,94,0.15)' : (isRespawnTable ? 'rgba(59,130,246,0.15)' : 'rgba(148,163,184,0.15)')}; color:${activePioneer?.primaryState?.hasPawn ? '#4ade80' : (isRespawnTable ? '#60a5fa' : '#94a3b8')}; border:1px solid ${activePioneer?.primaryState?.hasPawn ? 'rgba(34,197,94,0.3)' : (isRespawnTable ? 'rgba(59,130,246,0.3)' : 'rgba(148,163,184,0.3)')}; padding:2px 8px; border-radius:10px;">
+                                ${activePioneer?.primaryState?.hasPawn ? 'Active In-World' : (isRespawnTable ? 'Offline (Respawn Table)' : 'Offline')}
                             </span>
                         </h3>
                         <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.25rem;">
@@ -249,33 +424,71 @@ export function renderAdminWorkspaceHTML({ data, activePioneerName, unsavedChang
                 </div>
 
                 <!-- Care Package Injector Bar -->
-                <div style="background:#0f141c; border:1px dashed var(--border); border-radius:6px; padding:0.85rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
-                    <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; flex:1;">
-                        <strong style="font-size:0.85rem; color:#fff; white-space:nowrap;">🎁 Care Package Injector:</strong>
-                        <select id="admin-care-select" onchange="FicsitAdmin.changeCarePreset(this.value)"
-                                style="padding:0.45rem 0.6rem; background:#131a24; color:#fff; border:1px solid var(--border); border-radius:6px; font-size:0.82rem; min-width:220px;">
-                            <option value="/Game/FactoryGame/Resource/Parts/ResourceSinkCoupon/Desc_ResourceSinkCoupon.Desc_ResourceSinkCoupon_C" data-qty="50">🎫 FICSIT Coupons (50x)</option>
-                            <option value="/Game/FactoryGame/Resource/Environment/CrashSites/Desc_HardDrive.Desc_HardDrive_C" data-qty="1">💾 Hard Drive (1x)</option>
-                            <option value="/Game/FactoryGame/Prototype/WAT/Desc_WAT1.Desc_WAT1_C" data-qty="5">🔮 Mercer Sphere (5x)</option>
-                            <option value="/Game/FactoryGame/Prototype/WAT/Desc_WAT2.Desc_WAT2_C" data-qty="5">🌀 Somersloop (5x)</option>
-                            <option value="/Game/FactoryGame/Resource/Parts/Cement/Desc_Cement.Desc_Cement_C" data-qty="500">🧱 Concrete (500x)</option>
-                            <option value="/Game/FactoryGame/Resource/Parts/IronPlateReinforced/Desc_IronPlateReinforced.Desc_IronPlateReinforced_C" data-qty="100">⚙️ Reinforced Plate (100x)</option>
-                            <option value="/Game/FactoryGame/Resource/Parts/ModularFrame/Desc_ModularFrame.Desc_ModularFrame_C" data-qty="50">🔩 Modular Frame (50x)</option>
-                            <option value="/Game/FactoryGame/Resource/Parts/SAMFluctuator/Desc_SAMFluctuator.Desc_SAMFluctuator_C" data-qty="50">🔋 SAM Fluctuator (50x)</option>
-                        </select>
-                        <input type="number" id="admin-care-qty" value="50" min="1" max="5000" 
-                               style="width:80px; padding:0.45rem; background:#131a24; color:#fff; border:1px solid var(--border); border-radius:6px; font-size:0.82rem;">
+                <div style="background:#0f141c; border:1px dashed var(--border); border-radius:6px; padding:0.85rem; display:flex; flex-direction:column; gap:0.65rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+                        <div style="display:flex; align-items:center; gap:0.5rem;">
+                            <strong style="font-size:0.88rem; color:#fff; display:flex; align-items:center; gap:0.35rem;">
+                                🎁 Care Package Injector
+                            </strong>
+                            <span style="font-size:0.75rem; color:var(--text-muted); background:rgba(255,255,255,0.06); padding:0.15rem 0.5rem; border-radius:999px;" id="admin-care-count">
+                                ${filteredCareItems.length} of ${availableItems.length} items cataloged
+                            </span>
+                        </div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);">
+                            Search &amp; select from all Satisfactory 1.0 items or discovered mod items
+                        </div>
                     </div>
-                    <button class="btn btn-primary" onclick="FicsitAdmin.grantCarePackage('${activePioneer?.name}')" style="font-size:0.82rem; padding:0.5rem 1rem;">
-                        🎁 Add to Inventory
-                    </button>
+
+                    <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
+                        <select id="admin-care-cat" onchange="FicsitAdmin.changeCareCategory(this.value)"
+                                style="padding:0.45rem 0.6rem; background:#131a24; color:#fff; border:1px solid var(--border); border-radius:6px; font-size:0.82rem; min-width:170px;">
+                            <option value="all" ${effectiveCategory === 'all' ? 'selected' : ''}>📂 All Categories (${availableItems.length})</option>
+                            ${categories.map(cat => `<option value="${cat}" ${effectiveCategory === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+                        </select>
+
+                        <div style="position:relative; flex:1; min-width:160px;">
+                            <input type="text" id="admin-care-search" placeholder="🔍 Search item name..." value="${careSearchQuery || ''}"
+                                   oninput="FicsitAdmin.filterCareItems(this.value)"
+                                   style="width:100%; box-sizing:border-box; padding:0.45rem 0.6rem; background:#131a24; color:#fff; border:1px solid var(--border); border-radius:6px; font-size:0.82rem;">
+                        </div>
+
+                        <select id="admin-care-select" onchange="FicsitAdmin.changeCarePreset(this.value)"
+                                style="padding:0.45rem 0.6rem; background:#131a24; color:#fff; border:1px solid var(--border); border-radius:6px; font-size:0.82rem; flex:1.5; min-width:240px;">
+                            ${careOptionsHTML}
+                        </select>
+
+                        <div style="display:inline-flex; align-items:center; gap:0.3rem;">
+                            <label for="admin-care-qty" style="font-size:0.75rem; color:var(--text-muted);">Qty:</label>
+                            <input type="number" id="admin-care-qty" value="${careQty || 50}" min="1" max="50000" 
+                                   style="width:75px; padding:0.45rem; background:#131a24; color:#fff; border:1px solid var(--border); border-radius:6px; font-size:0.82rem;">
+                        </div>
+
+                        <button class="btn btn-primary" onclick="FicsitAdmin.grantCarePackage('${activePioneer?.name}')" style="font-size:0.82rem; padding:0.45rem 0.9rem; white-space:nowrap;">
+                            🎁 Add to Backpack
+                        </button>
+                    </div>
                 </div>
 
+                <!-- Visual Inventory Section -->
+                ${!stacks ? `
+                <div style="background:#0f141c; border:1px dashed #475569; border-radius:8px; padding:2.5rem 1.5rem; text-align:center; display:flex; flex-direction:column; align-items:center; gap:0.85rem;">
+                    <div style="font-size:2.4rem;">💤</div>
+                    <div>
+                        <strong style="font-size:1.05rem; color:#fff; display:block; margin-bottom:0.35rem;">Pioneer is Offline (No Physical Body in World)</strong>
+                        <div style="font-size:0.82rem; color:var(--text-muted); max-width:480px; line-height:1.45;">
+                            ${activePioneer?.name} is currently disconnected and has no active pawn or saved respawn backpack in this save. Provision a respawn backpack to grant items or adjust capacity while they are offline.
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" onclick="FicsitAdmin.provisionBackpack('${activePioneer?.name}', ${activePioneer?.primaryState?.inventorySlots || 63})" style="padding:0.55rem 1.25rem; font-size:0.88rem; margin-top:0.35rem;">
+                        🎒 Initialize Respawn Backpack (${activePioneer?.primaryState?.inventorySlots || 63} Slots)
+                    </button>
+                </div>
+                ` : `
                 <!-- Visual Inventory Occupancy Bar -->
                 <div>
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem; font-size:0.82rem;">
                         <span style="color:var(--text-muted);">
-                            <strong>Backpack Occupancy:</strong> ${occupiedCount} of ${totalSlots} slots occupied (${totalSlots - occupiedCount} free)
+                            <strong>${isRespawnTable ? '📦 Offline Respawn Inventory' : '🎒 Backpack Occupancy'}:</strong> ${occupiedCount} of ${totalSlots} slots occupied (${totalSlots - occupiedCount} free)
                         </span>
                         <span style="font-weight:600; color:${percentFull >= 95 ? '#ef4444' : '#a7f3d0'};">${percentFull}% Full</span>
                     </div>
@@ -294,6 +507,7 @@ export function renderAdminWorkspaceHTML({ data, activePioneerName, unsavedChang
                         ${slotCards}
                     </div>
                 </div>
+                `}
             </div>
         </div>
 

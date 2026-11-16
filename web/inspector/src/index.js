@@ -3,7 +3,11 @@ import {
     friendlyItemName,
     findPioneerInventory,
     createInventoryItemStruct,
-    renderAdminWorkspaceHTML
+    createRespawnInventoryStruct,
+    renderAdminWorkspaceHTML,
+    getAllAvailableItems,
+    generatePortalSaveName,
+    formatSatisfactoryDate
 } from './admin.js';
 
 // Helper: Format seconds to HH:MM:SS
@@ -54,7 +58,7 @@ export const DIAGNOSTIC_RULES = [
                 return {
                     status: 'error',
                     title: 'Corrupted Respawn Inventory Table Detected',
-                    details: `${bad.length} player(s) (${bad.map(p => p.name).join(', ')}) have a corrupt mInventoryToRespawnWith table (63 slots). This triggers a fatal engine crash on connect (AFGPlayerController::FinishRespawn array bounds assertion).`,
+                    details: `${bad.length} player(s) (${bad.map(p => p.name).join(', ')}) have a corrupt or unreadable respawn inventory table.`,
                     fixable: true,
                     affected: bad.map(p => p.name)
                 };
@@ -236,15 +240,20 @@ export function inspectSaveAST(save, originalFileSize = 0, parseTimeMs = 0) {
                     }
                 }
 
-                // Check for corrupt respawn table
+                // Check for corrupt respawn table (only flag if struct is actually unparseable or broken)
                 let hasCorruptRespawn = false;
                 let respawnSlots = 0;
                 if (props.mInventoryToRespawnWith) {
-                    hasCorruptRespawn = true;
                     try {
-                        const stacks = props.mInventoryToRespawnWith.value.properties.mInventoryStacks.values;
-                        respawnSlots = stacks.length;
+                        const stacks = props.mInventoryToRespawnWith.value?.properties?.mInventoryStacks?.values;
+                        if (!Array.isArray(stacks)) {
+                            hasCorruptRespawn = true;
+                            respawnSlots = -1;
+                        } else {
+                            respawnSlots = stacks.length;
+                        }
                     } catch {
+                        hasCorruptRespawn = true;
                         respawnSlots = -1;
                     }
                 }
@@ -843,10 +852,10 @@ function renderEditorTab(data) {
                         <label style="font-size:0.75rem; color:var(--text-muted); display:block; margin-bottom:0.25rem;">Choose Item / Perk:</label>
                         <select id="grant-item-select" onchange="FicsitInspector.changeGrantItemPreset(this.value)"
                                 style="width:100%; padding:0.5rem; background:#0f141c; color:#fff; border:1px solid var(--border); border-radius:6px; font-size:0.85rem;">
-                            <option value="/Game/FactoryGame/Resource/Parts/ResourceSinkCoupon/Desc_ResourceSinkCoupon.Desc_ResourceSinkCoupon_C" data-qty="50">🎫 FICSIT Coupons (50x)</option>
-                            <option value="/Game/FactoryGame/Resource/Environment/CrashSites/Desc_HardDrive.Desc_HardDrive_C" data-qty="1">💾 Hard Drive (1x)</option>
-                            <option value="/Game/FactoryGame/Prototype/WAT/Desc_WAT1.Desc_WAT1_C" data-qty="5">🔮 Mercer Sphere (5x)</option>
-                            <option value="/Game/FactoryGame/Prototype/WAT/Desc_WAT2.Desc_WAT2_C" data-qty="5">🌀 Somersloop (5x)</option>
+                            <option value="/Game/FactoryGame/Resource/Parts/ResourceSinkCoupon/Desc_ResourceSinkCoupon.Desc_ResourceSinkCoupon_C" data-qty="500">🎫 FICSIT Coupons (500x)</option>
+                            <option value="/Game/FactoryGame/Resource/Environment/CrashSites/Desc_HardDrive.Desc_HardDrive_C" data-qty="100">💾 Hard Drive (100x)</option>
+                            <option value="/Game/FactoryGame/Prototype/WAT/Desc_WAT1.Desc_WAT1_C" data-qty="50">🔮 Somersloop (50x)</option>
+                            <option value="/Game/FactoryGame/Prototype/WAT/Desc_WAT2.Desc_WAT2_C" data-qty="50">🌀 Mercer Sphere (50x)</option>
                             <option value="/Game/FactoryGame/Resource/Parts/Cement/Desc_Cement.Desc_Cement_C" data-qty="500">🧱 Concrete (500x)</option>
                             <option value="/Game/FactoryGame/Resource/Parts/IronPlateReinforced/Desc_IronPlateReinforced.Desc_IronPlateReinforced_C" data-qty="100">⚙️ Reinforced Plate (100x)</option>
                             <option value="/Game/FactoryGame/Resource/Parts/ModularFrame/Desc_ModularFrame.Desc_ModularFrame_C" data-qty="50">🔩 Modular Frame (50x)</option>
@@ -1195,8 +1204,11 @@ export function fixCorruptRespawns() {
         for (const obj of save.levels[lvlName].objects) {
             if (obj.typePath && obj.typePath.includes('BP_PlayerState')) {
                 if (obj.properties?.mInventoryToRespawnWith) {
-                    delete obj.properties.mInventoryToRespawnWith;
-                    fixed++;
+                    const stacks = obj.properties.mInventoryToRespawnWith.value?.properties?.mInventoryStacks?.values;
+                    if (!Array.isArray(stacks)) {
+                        delete obj.properties.mInventoryToRespawnWith;
+                        fixed++;
+                    }
                 }
             }
         }
@@ -1510,6 +1522,9 @@ export function saveObjectProperties() {
 export function downloadEditedSave() {
     if (!currentInspectionData || !currentInspectionData.rawSave) return;
     const save = currentInspectionData.rawSave;
+    const downloadFilename = generatePortalSaveName(save, currentSaveName);
+    save.header.saveName = downloadFilename.replace(/\.sav$/i, '');
+
     const chunks = [];
     let headerArray = null;
 
@@ -1531,9 +1546,8 @@ export function downloadEditedSave() {
     const blob = new Blob([merged], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const baseName = (save.header.saveName || save.header.sessionName || 'satisfactory_save').replace(/\.sav$/i, '');
     a.href = url;
-    a.download = `${baseName}_edited.sav`;
+    a.download = downloadFilename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1544,6 +1558,9 @@ export function downloadEditedSave() {
 export async function saveToServer() {
     if (!currentInspectionData || !currentInspectionData.rawSave) return;
     const save = currentInspectionData.rawSave;
+    const newFilename = generatePortalSaveName(save, currentSaveName);
+    save.header.saveName = newFilename.replace(/\.sav$/i, '');
+
     const chunks = [];
     let headerArray = null;
 
@@ -1562,9 +1579,8 @@ export async function saveToServer() {
         offset += c.byteLength;
     }
 
-    const filename = currentSaveName || (save.header.saveName || save.header.sessionName || 'server') + '.sav';
     try {
-        const res = await fetch(`/admin/api/upload-save?filename=${encodeURIComponent(filename)}`, {
+        const res = await fetch(`/admin/api/upload-save?filename=${encodeURIComponent(newFilename)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/octet-stream' },
             body: merged
@@ -1572,7 +1588,9 @@ export async function saveToServer() {
         const result = await res.json();
         if (result.success) {
             editCounter = 0;
-            recomputeAndRender(`Successfully saved ${filename} directly to server! Backup created at ${result.backup}`);
+            currentSaveName = newFilename;
+            const backupNote = result.backup ? ` (Previous version backed up to ${result.backup})` : '';
+            recomputeAndRender(`Successfully saved ${newFilename} directly to server!${backupNote} Ready to load immediately in Satisfactory.`);
         } else {
             alert('Failed to save to server: ' + (result.error || 'Unknown error'));
         }
@@ -1626,6 +1644,9 @@ if (typeof window !== 'undefined') {
         selectPioneer: (name) => { adminActivePioneerName = name; adminRender(); },
         teleportPioneer: adminTeleportPioneer,
         applySlots: adminApplySlots,
+        provisionBackpack: adminProvisionBackpack,
+        changeCareCategory: adminChangeCareCategory,
+        filterCareItems: adminFilterCareItems,
         changeCarePreset: adminChangeCarePreset,
         grantCarePackage: adminGrantCarePackage,
         promptAddToSlot: adminPromptAddToSlot,
@@ -1659,6 +1680,10 @@ let adminSelectedRawObj = null;
 let adminRawCategory = 'subsystems';
 let adminRawQuery = '';
 let adminContainerId = 'admin-workspace';
+let adminCareCategory = 'all';
+let adminCareSearch = '';
+let adminCareSelectedItemPath = '';
+let adminCareQty = 50;
 
 function updateAdminHeaderBadges() {
     const badge = document.getElementById('admin-changes-badge');
@@ -1709,7 +1734,11 @@ function adminRender(notice = '') {
         selectedRawObj: adminSelectedRawObj,
         rawCategory: adminRawCategory,
         rawQuery: adminRawQuery,
-        rawFilteredObjects
+        rawFilteredObjects,
+        careCategory: adminCareCategory,
+        careSearchQuery: adminCareSearch,
+        careSelectedItemPath: adminCareSelectedItemPath,
+        careQty: adminCareQty
     });
 
     updateAdminHeaderBadges();
@@ -1815,8 +1844,13 @@ function adminApplySlots(pioneerName) {
         }
     }
 
-    const { invObj, stacks } = findPioneerInventory(pioneer, save);
-    if (invObj && stacks) {
+    let { invObj, ps, stacks, isRespawnTable } = findPioneerInventory(pioneer, save);
+    if (!stacks && ps) {
+        ps.properties = ps.properties || {};
+        ps.properties.mInventoryToRespawnWith = createRespawnInventoryStruct(slots);
+        stacks = ps.properties.mInventoryToRespawnWith.value.properties.mInventoryStacks.values;
+        isRespawnTable = true;
+    } else if (stacks) {
         const curLen = stacks.length;
         if (slots > curLen) {
             const diff = slots - curLen;
@@ -1829,9 +1863,11 @@ function adminApplySlots(pioneerName) {
                     }
                 });
             }
-            if (invObj.properties?.mAdjustedSizeDiff) {
+            if (invObj?.properties?.mAdjustedSizeDiff) {
                 invObj.properties.mAdjustedSizeDiff.value = (invObj.properties.mAdjustedSizeDiff.value || 0) + diff;
             }
+        } else if (slots < curLen) {
+            stacks.splice(slots);
         }
     }
 
@@ -1839,13 +1875,83 @@ function adminApplySlots(pioneerName) {
     adminRender(`Updated ${pioneerName}'s inventory capacity to ${slots} slots!`);
 }
 
+function updateCareSelectOptions() {
+    const sel = document.getElementById('admin-care-select');
+    const countBadge = document.getElementById('admin-care-count');
+    const qtyInput = document.getElementById('admin-care-qty');
+    if (!sel || !adminData || !adminData.rawSave) return;
+
+    const availableItems = getAllAvailableItems(adminData.rawSave);
+    const catFilter = adminCareCategory || 'all';
+    const searchFilter = (adminCareSearch || '').toLowerCase().trim();
+
+    const filtered = availableItems.filter(item => {
+        if (catFilter !== 'all' && item.category !== catFilter) return false;
+        if (searchFilter) {
+            const matchesName = item.name.toLowerCase().includes(searchFilter);
+            const matchesPath = item.path.toLowerCase().includes(searchFilter);
+            const matchesCat = item.category.toLowerCase().includes(searchFilter);
+            if (!matchesName && !matchesPath && !matchesCat) return false;
+        }
+        return true;
+    });
+
+    const grouped = {};
+    for (const item of filtered) {
+        if (!grouped[item.category]) grouped[item.category] = [];
+        grouped[item.category].push(item);
+    }
+
+    let html = '';
+    for (const [catName, items] of Object.entries(grouped)) {
+        html += `<optgroup label="${catName}">`;
+        for (const it of items) {
+            const isSel = it.path === adminCareSelectedItemPath;
+            html += `<option value="${it.path}" data-qty="${it.defaultQty}" ${isSel ? 'selected' : ''}>${it.icon} ${it.name} (${it.defaultQty}x)</option>`;
+        }
+        html += `</optgroup>`;
+    }
+
+    if (filtered.length === 0) {
+        html = `<option disabled value="">No items match "${adminCareSearch}"</option>`;
+    }
+
+    sel.innerHTML = html;
+    if (countBadge) {
+        countBadge.textContent = `${filtered.length} of ${availableItems.length} items cataloged`;
+    }
+
+    if (filtered.length > 0 && (!adminCareSelectedItemPath || !filtered.some(i => i.path === adminCareSelectedItemPath))) {
+        adminCareSelectedItemPath = filtered[0].path;
+        sel.value = adminCareSelectedItemPath;
+        if (qtyInput) {
+            qtyInput.value = filtered[0].defaultQty;
+            adminCareQty = filtered[0].defaultQty;
+        }
+    }
+}
+
+function adminFilterCareItems(query) {
+    adminCareSearch = query;
+    updateCareSelectOptions();
+}
+
+function adminChangeCareCategory(cat) {
+    adminCareCategory = cat;
+    updateCareSelectOptions();
+}
+
 function adminChangeCarePreset(val) {
+    adminCareSelectedItemPath = val;
     const sel = document.getElementById('admin-care-select');
     const input = document.getElementById('admin-care-qty');
     if (!sel || !input) return;
     const opt = sel.options[sel.selectedIndex];
     const def = opt?.getAttribute('data-qty');
-    if (def) input.value = def;
+    if (def) {
+        input.value = def;
+        adminCareQty = parseInt(def, 10);
+    }
 }
 
 function adminGrantCarePackage(pioneerName) {
@@ -1860,13 +1966,31 @@ function adminGrantCarePackage(pioneerName) {
     const qty = parseInt(input.value, 10);
     if (isNaN(qty) || qty <= 0) return;
 
+    adminCareSelectedItemPath = itemPath;
+    adminCareQty = qty;
+
     const pioneer = adminData.pioneers.find(p => p.name === pioneerName);
     if (!pioneer) return;
 
-    const { invObj, ps, stacks } = findPioneerInventory(pioneer, adminData.rawSave);
+    let { invObj, ps, stacks } = findPioneerInventory(pioneer, adminData.rawSave);
     if (!stacks) {
-        alert('Could not find inventory component for ' + pioneerName);
-        return;
+        if (ps) {
+            const initialSlots = pioneer.primaryState?.inventorySlots || 63;
+            ps.properties = ps.properties || {};
+            ps.properties.mInventoryToRespawnWith = createRespawnInventoryStruct(initialSlots);
+            ps.properties.mNumObservedInventorySlots = {
+                type: 'IntProperty',
+                name: 'mNumObservedInventorySlots',
+                propertyTagType: { name: 'IntProperty', children: [] },
+                flags: 16,
+                value: initialSlots
+            };
+            const ref = findPioneerInventory(pioneer, adminData.rawSave);
+            stacks = ref.stacks;
+        } else {
+            alert('Could not find inventory component for ' + pioneerName);
+            return;
+        }
     }
 
     // A. Check if existing stack with room
@@ -1923,12 +2047,28 @@ function adminPromptAddToSlot(pioneerName, slotIndex) {
     const opt = sel?.options[sel?.selectedIndex];
     const itemLabel = opt?.text?.split('(')[0]?.trim() || 'Item';
     const qty = parseInt(input?.value || '50', 10);
+    adminCareSelectedItemPath = itemPath;
+    adminCareQty = qty;
 
     const ok = confirm(`Drop ${qty}x ${itemLabel} directly into empty Slot #${slotIndex + 1}?`);
     if (!ok) return;
 
     const pioneer = adminData.pioneers.find(p => p.name === pioneerName);
-    const { stacks } = findPioneerInventory(pioneer, adminData.rawSave);
+    let { stacks, ps } = findPioneerInventory(pioneer, adminData.rawSave);
+    if (!stacks && ps) {
+        const initialSlots = pioneer.primaryState?.inventorySlots || 63;
+        ps.properties = ps.properties || {};
+        ps.properties.mInventoryToRespawnWith = createRespawnInventoryStruct(initialSlots);
+        ps.properties.mNumObservedInventorySlots = {
+            type: 'IntProperty',
+            name: 'mNumObservedInventorySlots',
+            propertyTagType: { name: 'IntProperty', children: [] },
+            flags: 16,
+            value: initialSlots
+        };
+        const ref = findPioneerInventory(pioneer, adminData.rawSave);
+        stacks = ref.stacks;
+    }
     if (!stacks || !stacks[slotIndex]) return;
 
     stacks[slotIndex].properties = {
@@ -1947,7 +2087,21 @@ function adminEditSlotQty(pioneerName, slotIndex, currentQty) {
     if (isNaN(val) || val <= 0) return;
 
     const pioneer = adminData.pioneers.find(p => p.name === pioneerName);
-    const { stacks } = findPioneerInventory(pioneer, adminData.rawSave);
+    let { stacks, ps } = findPioneerInventory(pioneer, adminData.rawSave);
+    if (!stacks && ps) {
+        const initialSlots = pioneer.primaryState?.inventorySlots || 63;
+        ps.properties = ps.properties || {};
+        ps.properties.mInventoryToRespawnWith = createRespawnInventoryStruct(initialSlots);
+        ps.properties.mNumObservedInventorySlots = {
+            type: 'IntProperty',
+            name: 'mNumObservedInventorySlots',
+            propertyTagType: { name: 'IntProperty', children: [] },
+            flags: 16,
+            value: initialSlots
+        };
+        const ref = findPioneerInventory(pioneer, adminData.rawSave);
+        stacks = ref.stacks;
+    }
     if (!stacks || !stacks[slotIndex]) return;
 
     stacks[slotIndex].properties.NumItems.value = val;
@@ -1958,7 +2112,21 @@ function adminEditSlotQty(pioneerName, slotIndex, currentQty) {
 function adminClearSlot(pioneerName, slotIndex) {
     if (!confirm(`Are you sure you want to delete and empty slot #${slotIndex + 1}?`)) return;
     const pioneer = adminData.pioneers.find(p => p.name === pioneerName);
-    const { stacks } = findPioneerInventory(pioneer, adminData.rawSave);
+    let { stacks, ps } = findPioneerInventory(pioneer, adminData.rawSave);
+    if (!stacks && ps) {
+        const initialSlots = pioneer.primaryState?.inventorySlots || 63;
+        ps.properties = ps.properties || {};
+        ps.properties.mInventoryToRespawnWith = createRespawnInventoryStruct(initialSlots);
+        ps.properties.mNumObservedInventorySlots = {
+            type: 'IntProperty',
+            name: 'mNumObservedInventorySlots',
+            propertyTagType: { name: 'IntProperty', children: [] },
+            flags: 16,
+            value: initialSlots
+        };
+        const ref = findPioneerInventory(pioneer, adminData.rawSave);
+        stacks = ref.stacks;
+    }
     if (!stacks || !stacks[slotIndex]) return;
 
     stacks[slotIndex].properties = {
@@ -1969,6 +2137,45 @@ function adminClearSlot(pioneerName, slotIndex) {
     adminRender(`Emptied slot #${slotIndex + 1}!`);
 }
 
+function adminProvisionBackpack(pioneerName, slotCount) {
+    if (!adminData || !adminData.rawSave) return;
+    const save = adminData.rawSave;
+    const pioneer = adminData.pioneers.find(p => p.name === pioneerName);
+    if (!pioneer) return;
+
+    const psInst = pioneer.primaryState?.instanceName;
+    let ps = null;
+    for (const lvl in save.levels) {
+        for (const obj of save.levels[lvl].objects) {
+            if (obj.instanceName === psInst) {
+                ps = obj;
+                break;
+            }
+        }
+        if (ps) break;
+    }
+
+    if (!ps) {
+        alert('Could not find PlayerState for ' + pioneerName);
+        return;
+    }
+
+    const count = parseInt(slotCount, 10) || pioneer.primaryState?.inventorySlots || 63;
+    ps.properties = ps.properties || {};
+    ps.properties.mInventoryToRespawnWith = createRespawnInventoryStruct(count);
+    ps.properties.mNumObservedInventorySlots = {
+        type: 'IntProperty',
+        name: 'mNumObservedInventorySlots',
+        propertyTagType: { name: 'IntProperty', children: [] },
+        flags: 16,
+        value: count
+    };
+    pioneer.primaryState.inventorySlots = count;
+
+    adminUnsavedChanges++;
+    adminRender(`Initialized ${count}-slot offline respawn backpack for ${pioneerName}!`);
+}
+
 function adminFixCorruptRespawns() {
     if (!adminData || !adminData.rawSave) return;
     const save = adminData.rawSave;
@@ -1977,8 +2184,11 @@ function adminFixCorruptRespawns() {
         for (const obj of save.levels[lvl].objects) {
             if (obj.typePath && obj.typePath.includes('BP_PlayerState')) {
                 if (obj.properties && obj.properties.mInventoryToRespawnWith) {
-                    delete obj.properties.mInventoryToRespawnWith;
-                    count++;
+                    const stacks = obj.properties.mInventoryToRespawnWith.value?.properties?.mInventoryStacks?.values;
+                    if (!Array.isArray(stacks)) {
+                        delete obj.properties.mInventoryToRespawnWith;
+                        count++;
+                    }
                 }
             }
         }
@@ -2098,6 +2308,12 @@ function adminSaveRawProperties() {
 async function adminSaveToServer() {
     if (!adminData || !adminData.rawSave) return;
     const save = adminData.rawSave;
+
+    // Generate Satisfactory in-game style name: <servername>-<DDMMYY-HHmmss>-portalsave.sav
+    const newFilename = generatePortalSaveName(save, adminSaveName);
+    const saveTitle = newFilename.replace(/\.sav$/i, '');
+    save.header.saveName = saveTitle;
+
     const chunks = [];
     let headerArray = null;
 
@@ -2116,9 +2332,8 @@ async function adminSaveToServer() {
         offset += c.byteLength;
     }
 
-    const filename = adminSaveName || (save.header.saveName || save.header.sessionName || 'server') + '.sav';
     try {
-        const res = await fetch(`/admin/api/upload-save?filename=${encodeURIComponent(filename)}`, {
+        const res = await fetch(`/admin/api/upload-save?filename=${encodeURIComponent(newFilename)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/octet-stream' },
             body: merged
@@ -2126,7 +2341,21 @@ async function adminSaveToServer() {
         const result = await res.json();
         if (result.success) {
             adminUnsavedChanges = 0;
-            adminRender(`Successfully saved ${filename} directly to server! Backup created at ${result.backup}`);
+            adminSaveName = newFilename;
+
+            // Dynamically add and select the new save in the admin dropdown
+            const saveSelect = document.getElementById('admin-save-select');
+            if (saveSelect) {
+                const opt = document.createElement('option');
+                opt.value = '/' + newFilename;
+                opt.setAttribute('data-name', newFilename);
+                opt.textContent = `${newFilename} (${save.header.sessionName || 'Saved'}, Just now)`;
+                opt.selected = true;
+                saveSelect.insertBefore(opt, saveSelect.firstChild);
+            }
+
+            const backupNote = result.backup ? ` (Previous version backed up to ${result.backup})` : '';
+            adminRender(`Successfully saved ${newFilename} directly to server!${backupNote} Ready to load immediately in Satisfactory.`);
         } else {
             alert('Failed to save to server: ' + (result.error || 'Unknown error'));
         }
@@ -2138,6 +2367,9 @@ async function adminSaveToServer() {
 function adminDownloadSave() {
     if (!adminData || !adminData.rawSave) return;
     const save = adminData.rawSave;
+    const downloadFilename = generatePortalSaveName(save, adminSaveName);
+    save.header.saveName = downloadFilename.replace(/\.sav$/i, '');
+
     const chunks = [];
     let headerArray = null;
 
@@ -2159,9 +2391,8 @@ function adminDownloadSave() {
     const blob = new Blob([merged], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const baseName = (adminSaveName || save.header.saveName || save.header.sessionName || 'satisfactory_save').replace(/\.sav$/i, '');
     a.href = url;
-    a.download = `${baseName}_edited.sav`;
+    a.download = downloadFilename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

@@ -227,14 +227,19 @@ func (s *PortalServer) handleAdminUploadSave(w http.ResponseWriter, r *http.Requ
 	}
 
 	targetPath := filepath.Join(s.cfg.SavesDir, filename)
-	backupName := fmt.Sprintf("%s.%s.bak", filename, time.Now().Format("20060102-150405"))
+	baseName := strings.TrimSuffix(filename, filepath.Ext(filename))
+	// Satisfactory in-game date format: DDMMYY-HHmmss (e.g. 161126-154236)
+	backupName := fmt.Sprintf("%s-%s-backup.sav", baseName, time.Now().Format("020106-150405"))
 	backupPath := filepath.Join(s.cfg.SavesDir, backupName)
 
-	// Create backup of existing file if present
+	// Create backup of existing file if present (saved as loadable .sav instead of unreadable .bak)
+	var backupCreated string
 	if _, err := os.Stat(targetPath); err == nil {
 		origBytes, err := os.ReadFile(targetPath)
 		if err == nil {
-			_ = os.WriteFile(backupPath, origBytes, 0644)
+			if err := os.WriteFile(backupPath, origBytes, 0644); err == nil {
+				backupCreated = backupName
+			}
 		}
 	}
 
@@ -249,10 +254,11 @@ func (s *PortalServer) handleAdminUploadSave(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"success": true,
-		"message": fmt.Sprintf("Successfully applied %s to server!", filename),
-		"backup":  backupName,
-		"size":    len(body),
+		"success":  true,
+		"filename": filename,
+		"message":  fmt.Sprintf("Successfully applied %s to server!", filename),
+		"backup":   backupCreated,
+		"size":     len(body),
 	})
 }
 

@@ -2,6 +2,7 @@
   "name": "ficsit-portal-inspector",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "FICSIT Web Save Inspector & Diagnostics Engine",
   "scripts": {
     "build": "npx --yes esbuild src/index.js --bundle --minify --format=iife --global-name=FicsitInspector --outfile=../../cmd/ficsit-portal/assets/inspector.bundle.js"
