@@ -72,3 +72,4 @@ Thumbs.db
 .mise.local.toml
 tmp/
 scratch/
+node_modules/

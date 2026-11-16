@@ -124,6 +124,9 @@ func TestPortalEndpoints(t *testing.T) {
 	if !strings.Contains(body, `<link rel="icon" type="image/svg+xml" href="/favicon.svg">`) {
 		t.Fatalf("dashboard missing favicon link tag")
 	}
+	if !strings.Contains(body, `/inspector-v4.js`) || !strings.Contains(body, `openSaveInspector`) {
+		t.Fatalf("dashboard missing save inspector script or button")
+	}
 
 	// 7. /favicon.svg & /favicon.ico
 	for _, p := range []string{"/favicon.svg", "/favicon.ico"} {
@@ -138,6 +141,112 @@ func TestPortalEndpoints(t *testing.T) {
 		if !strings.Contains(frec.Body.String(), "<svg") {
 			t.Fatalf("expected svg content on %s", p)
 		}
+	}
+
+	// 8. /inspector-v4.js
+	irec := httptest.NewRecorder()
+	handler.ServeHTTP(irec, httptest.NewRequest(http.MethodGet, "/inspector-v4.js", nil))
+	if irec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /inspector-v4.js, got %d", irec.Code)
+	}
+	if !strings.HasPrefix(irec.Header().Get("Content-Type"), "application/javascript") {
+		t.Fatalf("expected application/javascript on /inspector-v4.js, got %s", irec.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(irec.Body.String(), "FicsitInspector") {
+		t.Fatalf("expected FicsitInspector in /inspector-v4.js bundle")
+	}
+
+	// 9. /admin route in open mode (no password)
+	arec := httptest.NewRecorder()
+	handler.ServeHTTP(arec, httptest.NewRequest(http.MethodGet, "/admin", nil))
+	if arec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /admin in open mode, got %d", arec.Code)
+	}
+	if !strings.Contains(arec.Body.String(), "Admin Control Center") {
+		t.Fatalf("expected Admin Control Center in /admin body")
+	}
+}
+
+func TestAdminAuthAndUpload(t *testing.T) {
+	tmp := t.TempDir()
+	savesDir := filepath.Join(tmp, "saved", "server")
+	_ = os.MkdirAll(savesDir, 0o755)
+
+	cfg := PortalConfig{
+		Port:          "8081",
+		SavesDir:      savesDir,
+		AdminPassword: "supersecretadmin",
+	}
+	server := NewPortalServer(cfg)
+	handler := server.Routes()
+
+	// 1. Unauthorized access to /admin redirects or shows login
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, httptest.NewRequest(http.MethodGet, "/admin", nil))
+	if rec1.Code != http.StatusOK || !strings.Contains(rec1.Body.String(), "Admin Password") {
+		t.Fatalf("expected login screen on unauthenticated /admin, got %d", rec1.Code)
+	}
+
+	// 2. Failed login
+	recFail := httptest.NewRecorder()
+	reqFail := httptest.NewRequest(http.MethodPost, "/admin/login", strings.NewReader("password=wrongpass"))
+	reqFail.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	handler.ServeHTTP(recFail, reqFail)
+	if !strings.Contains(recFail.Body.String(), "Access denied") {
+		t.Fatalf("expected access denied on wrong password")
+	}
+
+	// 3. Successful login
+	recLogin := httptest.NewRecorder()
+	reqLogin := httptest.NewRequest(http.MethodPost, "/admin/login", strings.NewReader("password=supersecretadmin"))
+	reqLogin.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	handler.ServeHTTP(recLogin, reqLogin)
+	if recLogin.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect on successful login, got %d", recLogin.Code)
+	}
+	cookie := recLogin.Result().Cookies()[0]
+	if cookie.Name != "ficsit_admin_session" || cookie.Value == "" {
+		t.Fatalf("expected valid ficsit_admin_session cookie")
+	}
+
+	// 4. Authorized access with cookie
+	recAuth := httptest.NewRecorder()
+	reqAuth := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	reqAuth.AddCookie(cookie)
+	handler.ServeHTTP(recAuth, reqAuth)
+	if recAuth.Code != http.StatusOK || !strings.Contains(recAuth.Body.String(), "Admin Control Center") {
+		t.Fatalf("expected Admin Control Center with valid cookie, got %d", recAuth.Code)
+	}
+
+	// 5. Upload save file via /admin/api/upload-save
+	testSavContent := make([]byte, 1024)
+	copy(testSavContent, []byte("GVAS-TEST-SAVE-CONTENT"))
+	recUp := httptest.NewRecorder()
+	reqUp := httptest.NewRequest(http.MethodPost, "/admin/api/upload-save?filename=test_world.sav", bytes.NewReader(testSavContent))
+	reqUp.AddCookie(cookie)
+	handler.ServeHTTP(recUp, reqUp)
+	if recUp.Code != http.StatusOK {
+		t.Fatalf("expected 200 on upload save, got %d: %s", recUp.Code, recUp.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(savesDir, "test_world.sav")); err != nil {
+		t.Fatalf("expected uploaded save file to exist on disk: %v", err)
+	}
+}
+
+func TestCustomMapSCIMWarning(t *testing.T) {
+	if isCustomMap("Persistent_Level") {
+		t.Fatalf("expected Persistent_Level to be standard map")
+	}
+	if isCustomMap("/Game/FactoryGame/Map/GameLevel01/Persistent_Level") {
+		t.Fatalf("expected GameLevel01 to be standard map")
+	}
+	if !isCustomMap("SkyblockLevel") {
+		t.Fatalf("expected SkyblockLevel to be custom map")
+	}
+
+	btn := scimButtonHTML("https://example.com/scim", "SkyblockLevel", "SCIM Map ↗")
+	if !strings.Contains(btn, "btn-map-warn") || !strings.Contains(btn, "⚠️") {
+		t.Fatalf("expected warning class and icon on custom map SCIM button, got: %s", btn)
 	}
 }
 

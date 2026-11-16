@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -35,6 +36,7 @@ type PortalConfig struct {
 	FRMAPIURL      string
 	MaxPlayers     int
 	ClientOnlyMods []mods.ModSpec
+	AdminPassword  string
 }
 
 type PortalServer struct {
@@ -70,6 +72,9 @@ const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <!-- FICSIT Blue Checkmark (Isometric Chamfered Chevron) -->
   <polygon points="20.5,31.5 28.5,39.5 43,24 39,20 28.5,31.5 24.5,27.5" fill="url(#ficsit-blue)"/>
 </svg>`
+
+//go:embed assets/inspector.bundle.js
+var inspectorBundleJS []byte
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -138,6 +143,7 @@ func loadConfigFromEnv() PortalConfig {
 		FRMAPIURL:      os.Getenv("FRM_API_URL"),
 		MaxPlayers:     maxPlayers,
 		ClientOnlyMods: clientOnlySpecs,
+		AdminPassword:  envOr("PORTAL_ADMIN_PASSWORD", envOr("ADMIN_PASSWORD", "")),
 	}
 }
 
@@ -170,7 +176,7 @@ func (s *PortalServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -179,6 +185,22 @@ func (s *PortalServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
 	switch path {
+	case "/admin":
+		s.handleAdmin(w, r, sendBody)
+		return
+
+	case "/admin/login":
+		s.handleAdminLogin(w, r)
+		return
+
+	case "/admin/logout":
+		s.handleAdminLogout(w, r)
+		return
+
+	case "/admin/api/upload-save":
+		s.handleAdminUploadSave(w, r)
+		return
+
 	case "/healthz", "/health":
 		s.writeBytes(w, http.StatusOK, "text/plain; charset=utf-8", []byte("OK\n"), sendBody)
 		return
@@ -186,6 +208,11 @@ func (s *PortalServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 	case "/favicon.ico", "/favicon.svg":
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		s.writeBytes(w, http.StatusOK, "image/svg+xml", []byte(faviconSVG), sendBody)
+		return
+
+	case "/inspector.js", "/inspector-v2.js", "/inspector-v3.js", "/inspector-v4.js":
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		s.writeBytes(w, http.StatusOK, "application/javascript; charset=utf-8", inspectorBundleJS, sendBody)
 		return
 
 	case "/metrics":
@@ -451,6 +478,25 @@ func (s *PortalServer) serveDiskFile(w http.ResponseWriter, filePath, downloadNa
 	}
 }
 
+func isCustomMap(mapName string) bool {
+	if mapName == "" {
+		return false
+	}
+	m := strings.ToLower(mapName)
+	if m == "persistent_level" || strings.Contains(m, "gamelevel01") {
+		return false
+	}
+	return true
+}
+
+func scimButtonHTML(scimURL, mapName, label string) string {
+	if isCustomMap(mapName) {
+		title := fmt.Sprintf("⚠️ Custom Map Detected (%s): SCIM only officially supports the default planetary map. Custom terrain and modded actors may fail to load or crash.", html.EscapeString(mapName))
+		return fmt.Sprintf(`<a href="%s" target="_blank" rel="noopener noreferrer" class="btn btn-map btn-map-warn" title="%s">⚠️ %s</a>`, html.EscapeString(scimURL), title, label)
+	}
+	return fmt.Sprintf(`<a href="%s" target="_blank" rel="noopener noreferrer" class="btn btn-map" title="Open save in Satisfactory-Calculator Interactive Map">%s</a>`, html.EscapeString(scimURL), label)
+}
+
 func (s *PortalServer) handleDashboard(w http.ResponseWriter, r *http.Request, saveList []saves.SaveFile, sendBody bool) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
@@ -604,7 +650,8 @@ func (s *PortalServer) handleDashboard(w http.ResponseWriter, r *http.Request, s
 			</div>
 			<div class="btn-group">
 				<a href="/latest.sav" class="btn btn-primary">⬇ Download Latest Save</a>
-				<a href="%s" target="_blank" rel="noopener noreferrer" class="btn btn-map">Open in SCIM ↗</a>
+				<button type="button" onclick="openSaveInspector('/latest.sav', '%s')" class="btn btn-secondary">🔍 Inspect</button>
+				%s
 			</div>
 		</div>`,
 			html.EscapeString(latest.Name),
@@ -612,7 +659,8 @@ func (s *PortalServer) handleDashboard(w http.ResponseWriter, r *http.Request, s
 			playMeta,
 			html.EscapeString(latest.FormattedTime),
 			html.EscapeString(latest.FormattedSize),
-			html.EscapeString(scimLatestURL),
+			html.EscapeString(latest.Name),
+			scimButtonHTML(scimLatestURL, latest.MapName, "Open in SCIM ↗"),
 		)
 
 		for _, sv := range saveList {
@@ -635,7 +683,8 @@ func (s *PortalServer) handleDashboard(w http.ResponseWriter, r *http.Request, s
 				<td class="size">%s</td>
 				<td class="actions">
 					<a href="/%s" class="btn btn-secondary">Download</a>
-					<a href="%s" target="_blank" rel="noopener noreferrer" class="btn btn-map">SCIM Map ↗</a>
+					<button type="button" onclick="openSaveInspector('/%s', '%s')" class="btn btn-secondary">🔍 Inspect</button>
+					%s
 				</td>
 			</tr>`,
 				escapedFile,
@@ -645,7 +694,9 @@ func (s *PortalServer) handleDashboard(w http.ResponseWriter, r *http.Request, s
 				html.EscapeString(sv.FormattedTime),
 				html.EscapeString(sv.FormattedSize),
 				escapedFile,
-				html.EscapeString(scimURL),
+				escapedFile,
+				html.EscapeString(sv.Name),
+				scimButtonHTML(scimURL, sv.MapName, "SCIM Map ↗"),
 			)
 		}
 	} else {
@@ -710,6 +761,7 @@ func (s *PortalServer) handleDashboard(w http.ResponseWriter, r *http.Request, s
 	<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 	<link rel="alternate icon" href="/favicon.ico">
 	<title>%s • FICSIT Save, Mod &amp; Blueprint Portal</title>
+	<script src="/inspector-v4.js" defer></script>
 	<style>
 		:root {
 			--bg-base: #0f141c;
@@ -863,6 +915,14 @@ func (s *PortalServer) handleDashboard(w http.ResponseWriter, r *http.Request, s
 			color: #60a5fa;
 		}
 		.btn-map:hover { background-color: rgba(59, 130, 246, 0.3); }
+		.btn-map-warn {
+			background-color: rgba(245, 158, 11, 0.15) !important;
+			border: 1px solid rgba(245, 158, 11, 0.5) !important;
+			color: #fbbf24 !important;
+		}
+		.btn-map-warn:hover {
+			background-color: rgba(245, 158, 11, 0.3) !important;
+		}
 		table {
 			width: 100%%;
 			border-collapse: collapse;
@@ -886,6 +946,228 @@ func (s *PortalServer) handleDashboard(w http.ResponseWriter, r *http.Request, s
 		td.name a:hover { color: var(--accent-primary); text-decoration: underline; }
 		td.time, td.size { color: var(--text-muted); font-size: 0.85rem; }
 		td.actions { text-align: right; display: flex; justify-content: flex-end; gap: 0.5rem; }
+		.local-inspect-bar {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			flex-wrap: wrap;
+			gap: 0.75rem;
+			padding: 0.85rem 1.25rem;
+			margin-top: -1.25rem;
+			margin-bottom: 2rem;
+			background: rgba(26, 34, 48, 0.5);
+			border: 1px dashed var(--border);
+			border-radius: 8px;
+			font-size: 0.88rem;
+			color: var(--text-muted);
+		}
+		.inspector-modal-backdrop {
+			position: fixed;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			background: rgba(10, 14, 20, 0.82);
+			backdrop-filter: blur(4px);
+			-webkit-backdrop-filter: blur(4px);
+			z-index: 9999;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			padding: 1.5rem;
+			box-sizing: border-box;
+		}
+		.inspector-card {
+			background: var(--bg-surface);
+			border: 1px solid var(--border);
+			border-radius: 12px;
+			box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+			width: 100%%;
+			max-width: 880px;
+			max-height: 85vh;
+			display: flex;
+			flex-direction: column;
+			overflow: hidden;
+			color: var(--text-main);
+			animation: modalFadeIn 0.15s ease-out;
+		}
+		@keyframes modalFadeIn {
+			from { opacity: 0; transform: scale(0.97); }
+			to { opacity: 1; transform: scale(1); }
+		}
+		.inspector-header {
+			padding: 1.25rem 1.5rem;
+			border-bottom: 1px solid var(--border);
+			background: #131a24;
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+		}
+		.modal-close-btn {
+			background: transparent;
+			border: none;
+			color: var(--text-muted);
+			font-size: 1.5rem;
+			cursor: pointer;
+			padding: 0.25rem 0.5rem;
+			border-radius: 4px;
+			line-height: 1;
+		}
+		.modal-close-btn:hover { color: #ffffff; background: rgba(255, 255, 255, 0.1); }
+		.inspector-tabs {
+			display: flex;
+			background: #111722;
+			border-bottom: 1px solid var(--border);
+			padding: 0.35rem 1rem 0 1rem;
+			gap: 0.5rem;
+			overflow-x: auto;
+		}
+		.inspector-tab-btn {
+			background: transparent;
+			border: none;
+			border-bottom: 2px solid transparent;
+			color: var(--text-muted);
+			font-size: 0.88rem;
+			font-weight: 500;
+			padding: 0.6rem 0.9rem;
+			cursor: pointer;
+			white-space: nowrap;
+			transition: all 0.15s;
+		}
+		.inspector-tab-btn:hover { color: var(--text-main); }
+		.inspector-tab-btn.active {
+			color: var(--accent-primary);
+			border-bottom-color: var(--accent-primary);
+		}
+		.inspector-body {
+			padding: 1.5rem;
+			overflow-y: auto;
+			flex: 1;
+		}
+		.inspector-grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+			gap: 0.85rem;
+		}
+		.inspector-box {
+			background: #131a24;
+			border: 1px solid var(--border);
+			border-radius: 6px;
+			padding: 0.85rem 1rem;
+		}
+		.inspector-box .box-label {
+			font-size: 0.72rem;
+			font-weight: 600;
+			color: var(--text-muted);
+			letter-spacing: 0.05em;
+			margin-bottom: 0.3rem;
+		}
+		.inspector-box .box-value {
+			font-size: 0.98rem;
+			font-weight: 600;
+			color: var(--text-main);
+			word-break: break-word;
+		}
+		.inspector-table {
+			width: 100%%;
+			border-collapse: collapse;
+			border: 1px solid var(--border);
+			border-radius: 6px;
+			overflow: hidden;
+			background: #131a24;
+		}
+		.inspector-table th, .inspector-table td {
+			padding: 0.6rem 0.85rem;
+			text-align: left;
+			border-bottom: 1px solid var(--border);
+		}
+		.inspector-table th { background: #0e141c; color: var(--text-muted); font-size: 0.8rem; }
+		.platform-pill {
+			background: rgba(59, 130, 246, 0.15);
+			color: #60a5fa;
+			border: 1px solid rgba(59, 130, 246, 0.4);
+			font-size: 0.75rem;
+			font-weight: 600;
+			padding: 0.15rem 0.45rem;
+			border-radius: 4px;
+		}
+		.clone-pill {
+			background: rgba(168, 85, 247, 0.15);
+			color: #c084fc;
+			border: 1px solid rgba(168, 85, 247, 0.4);
+			font-size: 0.72rem;
+			font-weight: 600;
+			padding: 0.15rem 0.45rem;
+			border-radius: 4px;
+			margin-left: 0.4rem;
+		}
+		.health-badge {
+			font-size: 0.8rem;
+			font-weight: 600;
+			padding: 0.3rem 0.65rem;
+			border-radius: 6px;
+			white-space: nowrap;
+		}
+		.health-badge.ok { background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.4); color: #4ade80; }
+		.health-badge.error { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #f87171; }
+		.health-badge.warn { background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); color: #fbbf24; }
+		.diag-item {
+			padding: 0.9rem 1rem;
+			border-radius: 6px;
+			border: 1px solid var(--border);
+			background: #131a24;
+		}
+		.diag-item.diag-pass { border-left: 4px solid #22c55e; }
+		.diag-item.diag-error { border-left: 4px solid #ef4444; background: rgba(239, 68, 68, 0.05); }
+		.diag-item.diag-warn { border-left: 4px solid #f59e0b; background: rgba(245, 158, 11, 0.05); }
+		.diag-item.diag-info { border-left: 4px solid #3b82f6; }
+		.diag-tag {
+			font-size: 0.7rem;
+			font-weight: 700;
+			padding: 0.1rem 0.4rem;
+			border-radius: 4px;
+			background: rgba(255, 255, 255, 0.08);
+			color: var(--text-muted);
+		}
+		.mod-settings-grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+			gap: 0.65rem;
+		}
+		.mod-setting-pill {
+			background: #131a24;
+			border: 1px solid var(--border);
+			padding: 0.6rem 0.75rem;
+			border-radius: 6px;
+			font-size: 0.82rem;
+			overflow-wrap: anywhere;
+			word-break: break-word;
+		}
+		.inspector-spinner {
+			width: 42px;
+			height: 42px;
+			border: 3px solid rgba(250, 128, 41, 0.2);
+			border-top-color: var(--accent-primary);
+			border-radius: 50%%;
+			animation: spin 0.8s linear infinite;
+			margin: 0 auto;
+		}
+		@keyframes spin { to { transform: rotate(360deg); } }
+		.editor-section {
+			background: #111722;
+			border: 1px solid var(--border);
+			border-radius: 8px;
+			padding: 1.25rem;
+		}
+		.editor-action-card {
+			background: #131a24;
+			border: 1px solid var(--border);
+			border-radius: 6px;
+			padding: 1rem;
+			display: flex;
+			flex-direction: column;
+			justify-content: space-between;
+		}
 	</style>
 </head>
 <body>
@@ -897,6 +1179,7 @@ func (s *PortalServer) handleDashboard(w http.ResponseWriter, r *http.Request, s
 				<span class="badge">Build CL-%d</span>
 				<span class="badge">TPS: %s</span>
 				<span class="badge">%d / %d Pioneers</span>
+				<a href="/admin" class="btn btn-secondary" style="font-size:0.82rem; padding:0.35rem 0.75rem; text-decoration:none; margin-left:0.35rem;">🔒 Admin</a>
 			</div>
 		</header>
 
@@ -932,6 +1215,14 @@ func (s *PortalServer) handleDashboard(w http.ResponseWriter, r *http.Request, s
 			</thead>
 			<tbody>%s</tbody>
 		</table>
+
+		<div class="local-inspect-bar">
+			<span>💡 <strong>Offline Save Inspector:</strong> You can also inspect any single-player or local save directly from your computer in your browser.</span>
+			<label class="btn btn-secondary" style="cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem;">
+				📂 Inspect Local .sav
+				<input type="file" accept=".sav" style="display: none;" onchange="if(this.files.length) openSaveInspector(this.files[0], this.files[0].name)">
+			</label>
+		</div>
 	</div>
 </body>
 </html>`,
