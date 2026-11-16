@@ -140,3 +140,31 @@ func TestPortalEndpoints(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadConfigFromEnv(t *testing.T) {
+	// 1. Defaults
+	os.Clearenv()
+	cfg := loadConfigFromEnv()
+	if cfg.Port != "8081" {
+		t.Fatalf("expected default port 8081, got %s", cfg.Port)
+	}
+	if cfg.ProfileName != "default" {
+		t.Fatalf("expected default profile 'default', got %s", cfg.ProfileName)
+	}
+
+	// 2. PORTAL_PORT overrides PORT
+	t.Setenv("PORT", "8080")
+	t.Setenv("PORTAL_PORT", "9090")
+	t.Setenv("PORTAL_TITLE", "Custom Portal Title")
+	t.Setenv("MODS_PROFILE", "my-profile")
+	cfg2 := loadConfigFromEnv()
+	if cfg2.Port != "9090" {
+		t.Fatalf("expected PORTAL_PORT 9090, got %s", cfg2.Port)
+	}
+	if cfg2.ServerName != "Custom Portal Title" {
+		t.Fatalf("expected PORTAL_TITLE 'Custom Portal Title', got %s", cfg2.ServerName)
+	}
+	if cfg2.ProfileName != "my-profile" {
+		t.Fatalf("expected profile 'my-profile', got %s", cfg2.ProfileName)
+	}
+}

@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// Client interacts with the Satisfactory 1.0+ Dedicated Server HTTPS API (/api/v1).
+// Client interacts with the Satisfactory Dedicated Server HTTPS API (/api/v1).
 type Client struct {
 	BaseURL    string
 	APIToken   string

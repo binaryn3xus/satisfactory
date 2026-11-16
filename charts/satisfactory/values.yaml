@@ -96,13 +96,13 @@ mods:
   # When true, blocks FactoryServer.sh from starting if any mod fails to resolve
   # or is missing its .uplugin after a game update (prevents save corruption).
   strictMode: true
-  profileName: "UNSC-Section-III"
+  profileName: "default"
   # "always" (resolves newest compatible mod versions in SemVer range) or "locked"
   updatePolicy: "always"
 
   # Server + Client mods installed into FactoryGame/Mods via ficsit-cli
   # Example:
-  #   - ref: NoFuel
+  #   - ref: InfiniteNudge
   #     version: latest
   #   - ref: SmartFoundations
   #     version: "^2.0.0"
@@ -122,8 +122,10 @@ portal:
     tag: "" # Defaults to .Chart.AppVersion
     pullPolicy: IfNotPresent
 
-  port: 8080
-  # Optional FicsitRemoteMonitoring (FRM) endpoint if FRM mod is installed
+  title: "" # Defaults to server.config.serverName
+  port: 8081
+  # Optional FicsitRemoteMonitoring (FRM) endpoint if FRM mod is installed.
+  # Note: FRM listens on port 8080 by default, so portal defaults to 8081 to prevent port collisions.
   frmApiUrl: ""
 
   securityContext:
@@ -141,7 +143,7 @@ portal:
 
   service:
     type: ClusterIP
-    port: 8080
+    port: 8081
     annotations: {}
 
   # Option A: Kubernetes Gateway API HTTPRoute (Cilium, Envoy Gateway, Istio)

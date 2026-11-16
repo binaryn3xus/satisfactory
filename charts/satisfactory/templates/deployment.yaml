@@ -132,12 +132,20 @@ spec:
           image: "{{ .Values.portal.image.repository }}:{{ .Values.portal.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.portal.image.pullPolicy }}
           env:
+            - name: PORTAL_PORT
+              value: {{ .Values.portal.port | quote }}
             - name: PORT
               value: {{ .Values.portal.port | quote }}
             - name: SERVER_API_URL
               value: "https://127.0.0.1:{{ .Values.server.config.gamePort }}"
             - name: SMM_PROFILE_NAME
               value: {{ .Values.mods.profileName | quote }}
+            - name: MODS_PROFILE
+              value: {{ .Values.mods.profileName | quote }}
+            {{- if .Values.portal.title }}
+            - name: PORTAL_TITLE
+              value: {{ .Values.portal.title | quote }}
+            {{- end }}
             {{- if .Values.portal.frmApiUrl }}
             - name: FRM_API_URL
               value: {{ .Values.portal.frmApiUrl | quote }}

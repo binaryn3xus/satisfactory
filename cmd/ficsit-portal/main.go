@@ -112,8 +112,8 @@ func loadConfigFromEnv() PortalConfig {
 		gamefilesDir = filepath.Dir(filepath.Dir(envModsDir))
 	}
 
-	profileName := envOr("SMM_PROFILE_NAME", envOr("MODS_PROFILE", "UNSC-Section-III"))
-	serverName := envOr("SERVER_NAME", profileName)
+	profileName := envOr("PORTAL_PROFILE_NAME", envOr("SMM_PROFILE_NAME", envOr("MODS_PROFILE", "default")))
+	serverName := envOr("PORTAL_TITLE", envOr("SERVER_NAME", profileName))
 	logFile := envOr("LOG_FILE", filepath.Join(gamefilesDir, "FactoryGame/Saved/Logs/FactoryGame.log"))
 	gamePort := envOr("SERVER_GAME_PORT", "7777")
 	serverAPIURL := envOr("SERVER_API_URL", "https://127.0.0.1:"+gamePort)
@@ -126,7 +126,7 @@ func loadConfigFromEnv() PortalConfig {
 	clientOnlySpecs, _ := mods.ParseModList(os.Getenv("MODS_CLIENT_ONLY"))
 
 	return PortalConfig{
-		Port:           envOr("PORT", "8080"),
+		Port:           envOr("PORTAL_PORT", envOr("PORT", "8081")),
 		ServerName:     serverName,
 		ProfileName:    profileName,
 		SavesDir:       envOr("SAVES_DIR", "/config/saved/server"),

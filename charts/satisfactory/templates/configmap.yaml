@@ -14,6 +14,7 @@ data:
   AUTOSAVE_INTERVAL: {{ .Values.server.config.autoSaveInterval | quote }}
   AUTO_PAUSE: {{ .Values.server.config.autoPause | quote }}
   MAX_OBJECTS: {{ .Values.server.config.maxObjects | quote }}
+  SERVER_TIMEOUT: {{ .Values.server.config.timeout | quote }}
   TIMEOUT: {{ .Values.server.config.timeout | quote }}
   SERVER_STREAMING: {{ .Values.server.config.serverStreaming | quote }}
   DISABLE_SEASONAL_EVENTS: {{ .Values.server.config.disableSeasonalEvents | quote }}

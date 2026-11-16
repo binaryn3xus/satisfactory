@@ -143,7 +143,7 @@ func ParseHeaderFile(path string) (*SaveFile, error) {
 }
 
 // ParseHeaderBytes parses the uncompressed header at the start of a Satisfactory .sav file.
-// Supports both SaveHeaderVersion >= 14 (Satisfactory 1.0+, which includes SaveName before MapName)
+// Supports both SaveHeaderVersion >= 14 (which includes SaveName before MapName)
 // and older SaveHeaderVersion < 14 formats.
 func ParseHeaderBytes(data []byte) (*SaveFile, error) {
 	r := bytes.NewReader(data)

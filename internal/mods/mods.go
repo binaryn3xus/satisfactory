@@ -631,7 +631,7 @@ func InspectInstalledMods(gamefilesDir, profileName string) ([]InstalledMod, map
 // BuildSMMProfile constructs the downloadable .smmprofile JSON object for Desktop SMM clients.
 func BuildSMMProfile(gamefilesDir, profileName string, clientOnlyMods []ModSpec) map[string]any {
 	if profileName == "" {
-		profileName = "UNSC-Section-III"
+		profileName = "default"
 	}
 	modsList, activeLockfile, gameVersion := InspectInstalledMods(gamefilesDir, profileName)
 

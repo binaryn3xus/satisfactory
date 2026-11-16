@@ -160,7 +160,7 @@ func ParseLogPioneers(logPath string) (online []Pioneer, recent []Pioneer) {
 	return online, recent
 }
 
-// CollectSnapshot gathers the unified server + pioneer status from the 1.0 HTTPS API,
+// CollectSnapshot gathers the unified server + pioneer status from the HTTPS API,
 // FactoryGame.log, and optional FicsitRemoteMonitoring (FRM) endpoint.
 func CollectSnapshot(ctx context.Context, apiClient *api.Client, logPath string, frmBaseURL string, maxPlayersFallback int) Snapshot {
 	snap := Snapshot{

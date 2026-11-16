@@ -75,7 +75,7 @@ func runReconcileMods() error {
 	ficsitBin := envOr("FICSIT_BIN", "ficsit-cli")
 	modsEnabled := envBool("MODS_ENABLED", false)
 	strictMode := envBool("MODS_STRICT_MODE", true)
-	profileName := envOr("MODS_PROFILE", "UNSC-Section-III")
+	profileName := envOr("MODS_PROFILE", "default")
 	updatePolicy := envOr("MODS_UPDATE_POLICY", "always")
 	modsFile := envOr("MODS_FILE", "/config/mods.json")
 	modsListRaw := os.Getenv("MODS_LIST")
