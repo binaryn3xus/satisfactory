@@ -26,6 +26,12 @@ func TestHealthCheckAndQueryState(t *testing.T) {
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
+		case "LoadGame":
+			if r.Header.Get("Authorization") != "Bearer secret-token" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
 		default:
 			w.WriteHeader(http.StatusBadRequest)
 		}
@@ -52,5 +58,9 @@ func TestHealthCheckAndQueryState(t *testing.T) {
 
 	if err := client.SaveGame(context.Background(), "pre_shutdown"); err != nil {
 		t.Fatalf("SaveGame error: %v", err)
+	}
+
+	if err := client.LoadGame(context.Background(), "Project-MJOLNIR.sav", false); err != nil {
+		t.Fatalf("LoadGame error: %v", err)
 	}
 }

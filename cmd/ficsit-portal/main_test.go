@@ -256,6 +256,18 @@ func TestAdminAuthAndUpload(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(savesDir, backupName)); err != nil {
 		t.Fatalf("expected backup file %s to exist on disk: %v", backupName, err)
 	}
+
+	// 7. Test /admin/api/load-game without SERVER_API_TOKEN configured returns informative error
+	recLoadNoToken := httptest.NewRecorder()
+	reqLoadNoToken := httptest.NewRequest(http.MethodPost, "/admin/api/load-game?filename=test_world.sav", nil)
+	reqLoadNoToken.AddCookie(cookie)
+	handler.ServeHTTP(recLoadNoToken, reqLoadNoToken)
+	if recLoadNoToken.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 when SERVER_API_TOKEN is not configured, got %d: %s", recLoadNoToken.Code, recLoadNoToken.Body.String())
+	}
+	if !strings.Contains(recLoadNoToken.Body.String(), "SERVER_API_TOKEN") {
+		t.Fatalf("expected error message to mention SERVER_API_TOKEN, got: %s", recLoadNoToken.Body.String())
+	}
 }
 
 func TestCustomMapSCIMWarning(t *testing.T) {

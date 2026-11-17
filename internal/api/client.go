@@ -128,6 +128,22 @@ func (c *Client) SaveGame(ctx context.Context, saveName string) error {
 	return c.do(ctx, reqBody, nil, true)
 }
 
+// LoadGame requests the dedicated server to load a specific save game into memory (requires an Admin API token).
+func (c *Client) LoadGame(ctx context.Context, saveName string, enableAdvancedGameSettings bool) error {
+	if c.APIToken == "" {
+		return fmt.Errorf("SERVER_API_TOKEN is required to call LoadGame")
+	}
+	saveName = strings.TrimSuffix(strings.TrimSpace(saveName), ".sav")
+	reqBody := rpcRequest{
+		Function: "LoadGame",
+		Data: map[string]any{
+			"SaveName":                   saveName,
+			"EnableAdvancedGameSettings": enableAdvancedGameSettings,
+		},
+	}
+	return c.do(ctx, reqBody, nil, true)
+}
+
 func (c *Client) do(ctx context.Context, payload rpcRequest, out any, requireAuth bool) error {
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {

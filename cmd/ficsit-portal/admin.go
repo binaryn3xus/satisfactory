@@ -262,6 +262,71 @@ func (s *PortalServer) handleAdminUploadSave(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+func (s *PortalServer) handleAdminLoadGame(w http.ResponseWriter, r *http.Request) {
+	setCORSHeaders(w)
+	if !s.isAdminAuthenticated(r) {
+		http.Error(w, `{"error":"Unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.apiClient == nil || s.cfg.ServerAPIToken == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": "Dedicated Server API token (SERVER_API_TOKEN) is not configured on the portal. To load this save, use the in-game Server Manager (Esc -> Server Manager -> Manage Saves -> Load Save).",
+		})
+		return
+	}
+
+	filename := r.URL.Query().Get("filename")
+	if filename == "" {
+		http.Error(w, `{"error":"Missing filename parameter"}`, http.StatusBadRequest)
+		return
+	}
+
+	filename = filepath.Base(filename)
+	if !strings.HasSuffix(strings.ToLower(filename), ".sav") {
+		http.Error(w, `{"error":"Invalid filename. Must end in .sav"}`, http.StatusBadRequest)
+		return
+	}
+
+	targetPath := filepath.Join(s.cfg.SavesDir, filename)
+	if _, err := os.Stat(targetPath); os.IsNotExist(err) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": fmt.Sprintf("Save file %s not found in server saves directory", filename),
+		})
+		return
+	}
+
+	// Safety: Attempt to create a live in-memory save before reloading, preserving running state
+	_ = s.apiClient.SaveGame(r.Context(), fmt.Sprintf("pre-load-%s", time.Now().Format("020106-150405")))
+
+	// Request dedicated server to load the save file
+	saveName := strings.TrimSuffix(filename, filepath.Ext(filename))
+	if err := s.apiClient.LoadGame(r.Context(), saveName, false); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": fmt.Sprintf("Dedicated server rejected LoadGame request: %v", err),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success":  true,
+		"filename": filename,
+		"message":  fmt.Sprintf("Dedicated server is now loading %s into memory!", filename),
+	})
+}
+
 func (s *PortalServer) handleAdmin(w http.ResponseWriter, r *http.Request, sendBody bool) {
 	if !s.isAdminAuthenticated(r) {
 		s.handleAdminLogin(w, r)
@@ -424,6 +489,7 @@ func (s *PortalServer) handleAdmin(w http.ResponseWriter, r *http.Request, sendB
 					%s
 				</select>
 				<button class="btn btn-secondary" onclick="loadSelectedSave()">🔄 Reload Save</button>
+				<button class="btn" style="background:#dc2626; color:#fff;" onclick="FicsitAdmin.promptLoadLiveServer()" title="Instruct the dedicated server process to load this save into live memory">⚡ Load on Live Server</button>
 			</div>
 			<div style="font-size:0.85rem; color:var(--text-muted);">
 				Visual Inventory Manager &bull; Save Doctor &bull; Direct Server Commit
@@ -454,6 +520,39 @@ func (s *PortalServer) handleAdmin(w http.ResponseWriter, r *http.Request, sendB
 			loadSelectedSave();
 		});
 	</script>
+
+	<!-- High-Impact Live Server Load Confirmation Modal -->
+	<div id="admin-load-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center; padding:1.5rem;">
+		<div style="background:#1e293b; border:1px solid #ef4444; border-radius:8px; max-width:540px; width:100%%; padding:1.75rem; box-shadow:0 20px 25px -5px rgba(0,0,0,0.5);">
+			<h3 style="color:#ef4444; margin:0 0 0.5rem 0; display:flex; align-items:center; gap:0.5rem; font-size:1.2rem;">
+				⚠️ High-Impact Server Action
+			</h3>
+			<p style="color:#e2e8f0; font-size:0.92rem; margin:0.5rem 0;">
+				You are about to load <strong id="load-modal-filename" style="color:#fa8029;"></strong> directly into the running Satisfactory dedicated server process.
+			</p>
+			<div style="background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.4); border-radius:6px; padding:0.85rem 1rem; margin:1rem 0; font-size:0.85rem; line-height:1.5; color:#fca5a5;">
+				<div style="font-weight:700; margin-bottom:0.35rem;">Critical Effects:</div>
+				<ul style="margin:0 0 0 1.25rem; padding:0;">
+					<li><strong>Disconnects Active Pioneers:</strong> Any players currently connected to the server will be immediately disconnected while the world reloads.</li>
+					<li><strong>Replaces Server Memory:</strong> The dedicated server will replace its current running simulation in RAM with this save file.</li>
+					<li><strong>Automatic Live Backup:</strong> An automated snapshot of the currently running world will be taken before loading.</li>
+					<li><strong>Reload Downtime:</strong> The server will be temporarily busy for 15-30 seconds while the world loads.</li>
+				</ul>
+			</div>
+			<p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.5rem;">
+				To confirm, type <strong style="color:#fff;">LOAD</strong> in the box below:
+			</p>
+			<input type="text" id="load-modal-input" placeholder="Type LOAD to confirm" autocomplete="off" style="background:#0f172a; border:1px solid #475569; color:#fff; padding:0.6rem; border-radius:6px; width:100%%; box-sizing:border-box; margin-bottom:1.25rem; font-size:0.95rem;" oninput="const btn = document.getElementById('load-modal-confirm-btn'); const match = this.value.trim().toUpperCase() === 'LOAD'; btn.disabled = !match; btn.style.opacity = match ? '1' : '0.4'; btn.style.cursor = match ? 'pointer' : 'not-allowed';">
+			<div id="load-modal-status" style="display:none; text-align:center; margin-bottom:1rem; color:var(--accent-primary); font-size:0.88rem; font-weight:600;">
+				<div class="inspector-spinner" style="margin:0 auto 0.5rem auto;"></div>
+				Instructing dedicated server to load world...
+			</div>
+			<div style="display:flex; justify-content:flex-end; gap:0.75rem;">
+				<button class="btn btn-secondary" id="load-modal-cancel-btn" onclick="FicsitAdmin.closeLoadModal()">Cancel</button>
+				<button class="btn" id="load-modal-confirm-btn" disabled style="background:#dc2626; color:#fff; opacity:0.4; cursor:not-allowed;" onclick="FicsitAdmin.confirmLoadLiveServer()">⚡ Yes, Load World on Server</button>
+			</div>
+		</div>
+	</div>
 </body>
 </html>`,
 		html.EscapeString(s.cfg.ServerName),

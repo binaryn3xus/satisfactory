@@ -1664,7 +1664,10 @@ if (typeof window !== 'undefined') {
         saveRawProperties: adminSaveRawProperties,
         dismissNotice: () => { adminNoticeMsg = ''; adminRender(); },
         saveToServer: adminSaveToServer,
-        downloadSave: adminDownloadSave
+        downloadSave: adminDownloadSave,
+        promptLoadLiveServer: adminPromptLoadLiveServer,
+        closeLoadModal: adminCloseLoadModal,
+        confirmLoadLiveServer: adminConfirmLoadLiveServer
     };
 }
 
@@ -2481,5 +2484,96 @@ async function adminImportSave(file) {
         } else if (container) {
             container.innerHTML = prevContent;
         }
+    }
+}
+
+function adminPromptLoadLiveServer() {
+    const saveSelect = document.getElementById('admin-save-select');
+    let targetSave = adminSaveName;
+    if (saveSelect && saveSelect.options.length > 0) {
+        const opt = saveSelect.options[saveSelect.selectedIndex];
+        if (opt) {
+            targetSave = opt.getAttribute('data-name') || opt.value.replace(/^\//, '');
+        }
+    }
+
+    if (!targetSave) {
+        alert('No active save file selected to load.');
+        return;
+    }
+
+    const modal = document.getElementById('admin-load-modal');
+    if (!modal) return;
+
+    const fnElem = document.getElementById('load-modal-filename');
+    if (fnElem) fnElem.textContent = targetSave;
+
+    const input = document.getElementById('load-modal-input');
+    if (input) {
+        input.value = '';
+    }
+
+    const confirmBtn = document.getElementById('load-modal-confirm-btn');
+    if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.style.opacity = '0.4';
+        confirmBtn.style.cursor = 'not-allowed';
+    }
+
+    const statusElem = document.getElementById('load-modal-status');
+    if (statusElem) statusElem.style.display = 'none';
+
+    const cancelBtn = document.getElementById('load-modal-cancel-btn');
+    if (cancelBtn) cancelBtn.disabled = false;
+
+    modal.style.display = 'flex';
+    if (input) setTimeout(() => input.focus(), 50);
+}
+
+function adminCloseLoadModal() {
+    const modal = document.getElementById('admin-load-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+async function adminConfirmLoadLiveServer() {
+    const input = document.getElementById('load-modal-input');
+    if (!input || input.value.trim().toUpperCase() !== 'LOAD') {
+        alert('You must type LOAD to confirm this action.');
+        return;
+    }
+
+    const saveSelect = document.getElementById('admin-save-select');
+    let targetSave = adminSaveName;
+    if (saveSelect && saveSelect.options.length > 0) {
+        const opt = saveSelect.options[saveSelect.selectedIndex];
+        if (opt) {
+            targetSave = opt.getAttribute('data-name') || opt.value.replace(/^\//, '');
+        }
+    }
+
+    const confirmBtn = document.getElementById('load-modal-confirm-btn');
+    const cancelBtn = document.getElementById('load-modal-cancel-btn');
+    const statusElem = document.getElementById('load-modal-status');
+
+    if (confirmBtn) confirmBtn.disabled = true;
+    if (cancelBtn) cancelBtn.disabled = true;
+    if (statusElem) statusElem.style.display = 'block';
+
+    try {
+        const res = await fetch(`/admin/api/load-game?filename=${encodeURIComponent(targetSave)}`, {
+            method: 'POST'
+        });
+        const result = await res.json();
+        if (!res.ok || !result.success) {
+            throw new Error(result.error || `HTTP ${res.status}: Failed to load save on server`);
+        }
+
+        adminCloseLoadModal();
+        adminRender(`⚡ Dedicated server received command to load "${targetSave}"! The world is now reloading into server memory. Connected pioneers will reconnect to the new world.`);
+    } catch (err) {
+        alert('Failed to load save on server: ' + err.message);
+        if (confirmBtn) confirmBtn.disabled = false;
+        if (cancelBtn) cancelBtn.disabled = false;
+        if (statusElem) statusElem.style.display = 'none';
     }
 }

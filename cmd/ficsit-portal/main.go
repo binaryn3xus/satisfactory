@@ -201,6 +201,10 @@ func (s *PortalServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 		s.handleAdminUploadSave(w, r)
 		return
 
+	case "/admin/api/load-game":
+		s.handleAdminLoadGame(w, r)
+		return
+
 	case "/healthz", "/health":
 		s.writeBytes(w, http.StatusOK, "text/plain; charset=utf-8", []byte("OK\n"), sendBody)
 		return
