@@ -1641,6 +1641,7 @@ if (typeof window !== 'undefined') {
     // FICSIT Admin Control Center API
     window.FicsitAdmin = {
         init: initAdmin,
+        importSave: adminImportSave,
         selectPioneer: (name) => { adminActivePioneerName = name; adminRender(); },
         teleportPioneer: adminTeleportPioneer,
         applySlots: adminApplySlots,
@@ -2397,4 +2398,88 @@ function adminDownloadSave() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+}
+
+async function adminImportSave(file) {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.sav')) {
+        alert('Please select a valid Satisfactory save file ending in .sav');
+        return;
+    }
+    if (file.size > 500 * 1024 * 1024) {
+        alert('Save file is too large (maximum allowed size is 500 MB)');
+        return;
+    }
+
+    if (adminUnsavedChanges > 0) {
+        if (!confirm(`You have ${adminUnsavedChanges} unsaved change(s) on the current save. Importing another save will discard them. Continue?`)) {
+            return;
+        }
+    }
+
+    const container = document.getElementById(adminContainerId || 'admin-workspace');
+    const prevContent = container ? container.innerHTML : '';
+    if (container) {
+        container.innerHTML = `
+            <div style="text-align:center; padding:4rem; color:var(--text-muted);">
+                <div class="inspector-spinner"></div>
+                <p style="margin-top:1rem; font-weight:600; color:var(--text-primary);">Verifying and importing ${file.name}...</p>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Parsing save state and uploading to server saves directory...</p>
+            </div>`;
+    }
+
+    try {
+        const buf = await file.arrayBuffer();
+        const cleanFilename = file.name.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+
+        // Client-side verification and parsing
+        const parsedData = inspectSaveBuffer(buf, cleanFilename);
+
+        // Upload to server endpoint
+        const res = await fetch(`/admin/api/upload-save?filename=${encodeURIComponent(cleanFilename)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: buf
+        });
+        const result = await res.json();
+        if (!result.success) {
+            throw new Error(result.error || 'Unknown error occurred while uploading save to server');
+        }
+
+        // Set as active save in admin state
+        adminData = parsedData;
+        adminSaveName = cleanFilename;
+        adminActivePioneerName = parsedData.pioneers[0]?.name || '';
+        adminUnsavedChanges = 0;
+        adminShowRawEditor = false;
+        adminSelectedRawObj = null;
+
+        // Update the admin save picker dropdown
+        const saveSelect = document.getElementById('admin-save-select');
+        if (saveSelect) {
+            let opt = Array.from(saveSelect.options).find(o =>
+                o.getAttribute('data-name') === cleanFilename || o.value === '/' + cleanFilename || o.value.endsWith('/' + cleanFilename)
+            );
+            if (!opt) {
+                opt = document.createElement('option');
+                opt.value = '/' + cleanFilename;
+                opt.setAttribute('data-name', cleanFilename);
+                const sessionName = parsedData.worldInfo?.sessionName || parsedData.rawSave?.header?.sessionName || 'Imported';
+                opt.textContent = `${cleanFilename} (${sessionName}, Just now)`;
+                saveSelect.insertBefore(opt, saveSelect.firstChild);
+            }
+            opt.selected = true;
+        }
+
+        const backupNote = result.backup ? ` (Previous version backed up to ${result.backup})` : '';
+        const sizeMb = (file.size / (1024 * 1024)).toFixed(2);
+        adminRender(`Successfully imported and uploaded "${cleanFilename}" (${sizeMb} MB) to server!${backupNote} Ready to inspect, edit, or load.`);
+    } catch (err) {
+        alert('Failed to import save: ' + err.message);
+        if (adminData) {
+            adminRender();
+        } else if (container) {
+            container.innerHTML = prevContent;
+        }
+    }
 }

@@ -406,6 +406,10 @@ func (s *PortalServer) handleAdmin(w http.ResponseWriter, r *http.Request, sendB
 		<div class="admin-nav">
 			<span id="admin-changes-badge" style="display:none; background:var(--accent-primary); color:#fff; font-size:0.75rem; font-weight:700; padding:3px 9px; border-radius:12px;"></span>
 			<button class="btn btn-primary" onclick="FicsitAdmin.saveToServer()" id="admin-save-btn">💾 Save to Server</button>
+			<label class="btn btn-secondary" style="cursor:pointer; margin:0;" title="Import and upload a local .sav file directly to server">
+				⬆️ Import .sav
+				<input type="file" accept=".sav" style="display:none;" id="admin-import-input" onchange="if(this.files.length){FicsitAdmin.importSave(this.files[0]); this.value='';}">
+			</label>
 			<button class="btn btn-secondary" onclick="FicsitAdmin.downloadSave()">⬇️ Export .sav</button>
 			<a href="/" class="btn btn-secondary">⬅ View Public Portal</a>
 			%s
