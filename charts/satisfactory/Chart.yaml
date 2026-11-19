@@ -2,8 +2,8 @@ apiVersion: v2
 name: satisfactory
 description: Container-native Satisfactory Dedicated Server with declarative ficsit-cli Mod Manager, Save/Blueprint Web Portal, and World-Protection Gate
 type: application
-version: 0.2.1
-appVersion: "0.2.1"
+version: 0.3.0
+appVersion: "0.3.0"
 home: https://github.com/binaryn3xus/satisfactory
 sources:
   - https://github.com/binaryn3xus/satisfactory
