@@ -3,6 +3,7 @@
 // =============================================================================
 
 import { friendlyItemName, getAllAvailableItems, scanSaveForItemDescriptors } from './items.js';
+import { ALTERNATE_RECIPES, MAM_TREES, isAlternateUnlocked, isMAMNodeUnlocked } from './recipes.js';
 export { friendlyItemName, getAllAvailableItems, scanSaveForItemDescriptors };
 
 export function formatSatisfactoryDate(date = new Date()) {
@@ -237,10 +238,104 @@ export function renderAdminWorkspaceHTML({
     careCategory = 'all',
     careSearchQuery = '',
     careSelectedItemPath = '',
-    careQty = 50
+    careQty = 50,
+    researchTab = 'alternates',
+    altCategory = 'all',
+    altSearchQuery = '',
+    expandedMAMTree = null
 }) {
     const { header, pioneers, rawPlayerStates, totalClones, worldInfo } = data;
     const corruptPlayers = rawPlayerStates.filter(p => p.hasCorruptRespawn);
+
+    // Research & MAM calculations
+    const unlockedAltsCount = ALTERNATE_RECIPES.filter(a => isAlternateUnlocked(data.rawSave, a)).length;
+    const totalAltsCount = ALTERNATE_RECIPES.length;
+    const altsPct = Math.round((unlockedAltsCount / totalAltsCount) * 100);
+
+    let totalMAMNodes = 0;
+    let unlockedMAMNodes = 0;
+    for (const tree of MAM_TREES) {
+        totalMAMNodes += tree.nodes.length;
+        unlockedMAMNodes += tree.nodes.filter(n => isMAMNodeUnlocked(data.rawSave, n)).length;
+    }
+    const mamPct = Math.round((unlockedMAMNodes / totalMAMNodes) * 100);
+
+    const altCategories = Array.from(new Set(ALTERNATE_RECIPES.map(a => a.category))).sort();
+
+    const filteredAlts = ALTERNATE_RECIPES.filter(a => {
+        if (altCategory !== 'all' && a.category !== altCategory) return false;
+        if (altSearchQuery) {
+            const q = altSearchQuery.toLowerCase().trim();
+            return a.name.toLowerCase().includes(q) || a.category.toLowerCase().includes(q);
+        }
+        return true;
+    });
+
+    const filteredAltsHTML = filteredAlts.map(alt => {
+        const isUnlocked = isAlternateUnlocked(data.rawSave, alt);
+        return `
+        <div class="admin-recipe-card ${isUnlocked ? 'unlocked' : ''}">
+            <div style="display:flex; flex-direction:column; gap:0.2rem; overflow:hidden;">
+                <strong style="font-size:0.88rem; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                    ${isUnlocked ? '✅ ' : '🔒 '}${alt.name}
+                </strong>
+                <span style="font-size:0.72rem; color:var(--text-muted);">${alt.category}</span>
+            </div>
+            <button class="btn ${isUnlocked ? 'btn-secondary' : 'btn-primary'}" 
+                    onclick="FicsitAdmin.toggleAlternate('${alt.id}')"
+                    style="font-size:0.75rem; padding:0.3rem 0.7rem; white-space:nowrap; ${isUnlocked ? 'background:#065f46; color:#6ee7b7; border-color:#059669;' : ''}">
+                ${isUnlocked ? 'Unlocked' : 'Unlock'}
+            </button>
+        </div>`;
+    }).join('');
+
+    const mamTreesHTML = MAM_TREES.map(tree => {
+        const completedCount = tree.nodes.filter(n => isMAMNodeUnlocked(data.rawSave, n)).length;
+        const treeTotal = tree.nodes.length;
+        const isComplete = completedCount === treeTotal;
+        const pct = Math.round((completedCount / treeTotal) * 100);
+        const isExpanded = expandedMAMTree === tree.id;
+
+        return `
+        <div style="background:#0f141c; border:1px solid ${isComplete ? '#059669' : 'var(--border)'}; border-radius:8px; padding:1rem; display:flex; flex-direction:column; gap:0.75rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <strong style="color:#fff; font-size:0.95rem;">${isComplete ? '🌟 ' : '🌲 '}${tree.name}</strong>
+                <span style="font-size:0.78rem; font-family:monospace; color:${isComplete ? '#4ade80' : '#60a5fa'}; font-weight:700;">
+                    ${completedCount} / ${treeTotal} (${pct}%)
+                </span>
+            </div>
+
+            <div style="height:6px; background:#1e293b; border-radius:3px; overflow:hidden;">
+                <div style="width:${pct}%; height:100%; background:${isComplete ? '#10b981' : '#3b82f6'}; transition:width 0.3s;"></div>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; margin-top:0.25rem;">
+                <button class="btn btn-secondary" onclick="FicsitAdmin.toggleMAMTreeExpand('${tree.id}')" style="font-size:0.75rem; padding:0.3rem 0.6rem;">
+                    ${isExpanded ? '▲ Hide Nodes' : `▼ View Nodes (${treeTotal})`}
+                </button>
+                ${!isComplete ? `
+                <button class="btn btn-primary" onclick="FicsitAdmin.completeMAMTree('${tree.id}')" style="font-size:0.75rem; padding:0.3rem 0.65rem;">
+                    ⚡ Complete Tree
+                </button>` : `<span style="font-size:0.75rem; color:#4ade80; font-weight:600;">✓ All Researched</span>`}
+            </div>
+
+            ${isExpanded ? `
+            <div style="display:flex; flex-direction:column; gap:0.35rem; margin-top:0.5rem; padding-top:0.5rem; border-top:1px dashed var(--border); max-height:220px; overflow-y:auto;">
+                ${tree.nodes.map(n => {
+                    const nodeDone = isMAMNodeUnlocked(data.rawSave, n);
+                    return `
+                    <div style="display:flex; justify-content:space-between; align-items:center; padding:0.3rem 0.5rem; background:#131a24; border-radius:4px; font-size:0.78rem;">
+                        <span style="color:${nodeDone ? '#a7f3d0' : '#cbd5e1'};">${nodeDone ? '✓' : '○'} ${n.name}</span>
+                        <button class="btn ${nodeDone ? 'btn-secondary' : 'btn-primary'}" 
+                                onclick="FicsitAdmin.toggleMAMNode('${n.schematicPath}')" 
+                                style="font-size:0.7rem; padding:0.15rem 0.5rem; ${nodeDone ? 'background:#065f46; color:#6ee7b7;' : ''}">
+                            ${nodeDone ? 'Done' : 'Unlock'}
+                        </button>
+                    </div>`;
+                }).join('')}
+            </div>` : ''}
+        </div>`;
+    }).join('');
 
     const activePioneer = pioneers.find(p => p.name === activePioneerName) || pioneers[0];
     const { stacks, isRespawnTable } = findPioneerInventory(activePioneer, data.rawSave);
@@ -511,7 +606,78 @@ export function renderAdminWorkspaceHTML({
             </div>
         </div>
 
-        <!-- 3. World & Progression Controls -->
+        <!-- 3. MAM & Alternate Recipe Research Station -->
+        <div style="background:#131a24; border:1px solid var(--border); border-radius:8px; padding:1.25rem; display:flex; flex-direction:column; gap:1rem;">
+            <!-- Header -->
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem; border-bottom:1px solid var(--border); padding-bottom:1rem;">
+                <div>
+                    <h3 style="margin:0; font-size:1.15rem; color:#fff; display:flex; align-items:center; gap:0.5rem;">
+                        <span>🔬 MAM &amp; Alternate Recipe Research Station</span>
+                    </h3>
+                    <div style="display:flex; align-items:center; gap:0.75rem; margin-top:0.4rem; font-size:0.82rem;">
+                        <span style="background:rgba(250,128,41,0.15); color:var(--accent-primary); border:1px solid rgba(250,128,41,0.3); padding:2px 8px; border-radius:12px; font-weight:600;">
+                            ⚡ ${unlockedAltsCount} / ${totalAltsCount} Alternates (${altsPct}%)
+                        </span>
+                        <span style="background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.3); padding:2px 8px; border-radius:12px; font-weight:600;">
+                            🌲 ${unlockedMAMNodes} / ${totalMAMNodes} MAM Nodes (${mamPct}%)
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Batch Actions -->
+                <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+                    <button class="btn btn-primary" onclick="FicsitAdmin.unlockAllAlternates()" style="font-size:0.82rem;">
+                        ⚡ Unlock All Alternates
+                    </button>
+                    <button class="btn btn-secondary" onclick="FicsitAdmin.completeAllMAMTrees()" style="font-size:0.82rem;">
+                        🌲 Complete All MAM Trees
+                    </button>
+                    <button class="btn btn-secondary" onclick="FicsitAdmin.lockAllAlternates()" style="font-size:0.82rem; color:#f87171;">
+                        🔒 Lock All Alternates
+                    </button>
+                </div>
+            </div>
+
+            <!-- Sub Tabs: Alternates vs MAM Trees -->
+            <div style="display:flex; gap:0.5rem; align-items:center;">
+                <button class="admin-tab-btn ${researchTab === 'alternates' ? 'active' : ''}" onclick="FicsitAdmin.setResearchTab('alternates')">
+                    📜 Alternate Recipes (${totalAltsCount})
+                </button>
+                <button class="admin-tab-btn ${researchTab === 'mam' ? 'active' : ''}" onclick="FicsitAdmin.setResearchTab('mam')">
+                    🌲 MAM Research Trees (${MAM_TREES.length})
+                </button>
+            </div>
+
+            ${researchTab === 'alternates' ? `
+                <!-- Alternate Recipes Toolbar: Search & Category Filter -->
+                <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
+                    <select id="admin-alt-cat" onchange="FicsitAdmin.filterAltCategory(this.value)"
+                            style="padding:0.45rem 0.6rem; background:#0f141c; color:#fff; border:1px solid var(--border); border-radius:6px; font-size:0.82rem; min-width:180px;">
+                        <option value="all" ${altCategory === 'all' ? 'selected' : ''}>📂 All Categories (${totalAltsCount})</option>
+                        ${altCategories.map(cat => `<option value="${cat}" ${altCategory === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+                    </select>
+
+                    <div style="position:relative; flex:1; min-width:200px;">
+                        <input type="text" id="admin-alt-search" placeholder="🔍 Search alternate recipes (e.g. Cast Screw, Heavy Oil Residue)..." 
+                               value="${altSearchQuery || ''}"
+                               oninput="FicsitAdmin.filterAltSearch(this.value)"
+                               style="width:100%; box-sizing:border-box; padding:0.45rem 0.6rem; background:#0f141c; color:#fff; border:1px solid var(--border); border-radius:6px; font-size:0.82rem;">
+                    </div>
+                </div>
+
+                <!-- Alternate Recipes Grid -->
+                <div class="admin-recipe-grid">
+                    ${filteredAltsHTML}
+                </div>
+            ` : `
+                <!-- MAM Trees View -->
+                <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:1rem;">
+                    ${mamTreesHTML}
+                </div>
+            `}
+        </div>
+
+        <!-- 4. World & Progression Controls -->
         <div style="background:#131a24; border:1px solid var(--border); border-radius:8px; padding:1.25rem;">
             <h3 style="margin:0 0 0.75rem 0; font-size:1rem; color:var(--accent-primary);">🗺️ World &amp; Project Assembly Controls</h3>
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:1rem; align-items:end;">

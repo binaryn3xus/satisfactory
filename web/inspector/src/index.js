@@ -9,6 +9,19 @@ import {
     generatePortalSaveName,
     formatSatisfactoryDate
 } from './admin.js';
+import {
+    ALTERNATE_RECIPES,
+    MAM_TREES,
+    getSchematicManager,
+    isAlternateUnlocked,
+    unlockAlternate,
+    lockAlternate,
+    unlockAllAlternates,
+    lockAllAlternates,
+    isMAMNodeUnlocked,
+    unlockMAMTree,
+    unlockAllMAMTrees
+} from './recipes.js';
 
 // Helper: Format seconds to HH:MM:SS
 function formatDuration(sec) {
@@ -1069,6 +1082,45 @@ const INSPECTOR_STYLES = `
         color: #ef4444;
         background: rgba(239, 68, 68, 0.15);
     }
+    .admin-recipe-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+        gap: 0.75rem;
+    }
+    .admin-recipe-card {
+        background: #0f141c;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.75rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.5rem;
+        transition: border-color 0.15s;
+    }
+    .admin-recipe-card.unlocked {
+        border-color: rgba(34, 197, 94, 0.4);
+        background: rgba(34, 197, 94, 0.04);
+    }
+    .admin-recipe-card:hover {
+        border-color: var(--accent-primary, #fa8029);
+    }
+    .admin-tab-btn {
+        padding: 0.45rem 1rem;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+        border: 1px solid var(--border);
+        background: #0f141c;
+        color: var(--text-muted);
+        transition: all 0.15s;
+    }
+    .admin-tab-btn.active {
+        background: #1e293b;
+        color: #fff;
+        border-color: var(--accent-primary, #fa8029);
+    }
     @media (max-width: 900px) {
         .admin-pioneer-workspace { grid-template-columns: 1fr !important; }
     }
@@ -1667,7 +1719,17 @@ if (typeof window !== 'undefined') {
         downloadSave: adminDownloadSave,
         promptLoadLiveServer: adminPromptLoadLiveServer,
         closeLoadModal: adminCloseLoadModal,
-        confirmLoadLiveServer: adminConfirmLoadLiveServer
+        confirmLoadLiveServer: adminConfirmLoadLiveServer,
+        setResearchTab: (tab) => { adminResearchTab = tab; adminRender(); },
+        filterAltCategory: (cat) => { adminAltCategory = cat; adminRender(); },
+        filterAltSearch: (q) => { adminAltSearchQuery = q; adminRender(); },
+        toggleAlternate: adminToggleAlternate,
+        unlockAllAlternates: adminUnlockAllAlternates,
+        lockAllAlternates: adminLockAllAlternates,
+        toggleMAMTreeExpand: (id) => { adminExpandedMAMTree = (adminExpandedMAMTree === id ? null : id); adminRender(); },
+        completeMAMTree: adminCompleteMAMTree,
+        completeAllMAMTrees: adminCompleteAllMAMTrees,
+        toggleMAMNode: adminToggleMAMNode
     };
 }
 
@@ -1688,6 +1750,10 @@ let adminCareCategory = 'all';
 let adminCareSearch = '';
 let adminCareSelectedItemPath = '';
 let adminCareQty = 50;
+let adminResearchTab = 'alternates';
+let adminAltCategory = 'all';
+let adminAltSearchQuery = '';
+let adminExpandedMAMTree = null;
 
 function updateAdminHeaderBadges() {
     const badge = document.getElementById('admin-changes-badge');
@@ -1742,7 +1808,11 @@ function adminRender(notice = '') {
         careCategory: adminCareCategory,
         careSearchQuery: adminCareSearch,
         careSelectedItemPath: adminCareSelectedItemPath,
-        careQty: adminCareQty
+        careQty: adminCareQty,
+        researchTab: adminResearchTab,
+        altCategory: adminAltCategory,
+        altSearchQuery: adminAltSearchQuery,
+        expandedMAMTree: adminExpandedMAMTree
     });
 
     updateAdminHeaderBadges();
@@ -2575,5 +2645,86 @@ async function adminConfirmLoadLiveServer() {
         if (confirmBtn) confirmBtn.disabled = false;
         if (cancelBtn) cancelBtn.disabled = false;
         if (statusElem) statusElem.style.display = 'none';
+    }
+}
+
+function adminToggleAlternate(altId) {
+    if (!adminData || !adminData.rawSave) return;
+    const alt = ALTERNATE_RECIPES.find(a => a.id === altId);
+    if (!alt) return;
+
+    const isUnlocked = isAlternateUnlocked(adminData.rawSave, alt);
+    if (isUnlocked) {
+        lockAlternate(adminData.rawSave, alt);
+        adminUnsavedChanges++;
+        adminRender(`Locked alternate recipe: ${alt.name}`);
+    } else {
+        unlockAlternate(adminData.rawSave, alt);
+        adminUnsavedChanges++;
+        adminRender(`Unlocked alternate recipe: ${alt.name}`);
+    }
+}
+
+function adminUnlockAllAlternates() {
+    if (!adminData || !adminData.rawSave) return;
+    if (!confirm('Are you sure you want to unlock all 112 Alternate Recipes in this save?')) return;
+
+    const count = unlockAllAlternates(adminData.rawSave);
+    if (count > 0) adminUnsavedChanges++;
+    adminRender(`Successfully unlocked ${count} alternate recipes!`);
+}
+
+function adminLockAllAlternates() {
+    if (!adminData || !adminData.rawSave) return;
+    if (!confirm('Are you sure you want to lock all Alternate Recipes in this save?')) return;
+
+    const count = lockAllAlternates(adminData.rawSave);
+    if (count > 0) adminUnsavedChanges++;
+    adminRender(`Successfully locked ${count} alternate recipes.`);
+}
+
+function adminCompleteMAMTree(treeId) {
+    if (!adminData || !adminData.rawSave) return;
+    const tree = MAM_TREES.find(t => t.id === treeId);
+    if (!tree) return;
+
+    const count = unlockMAMTree(adminData.rawSave, tree);
+    if (count > 0) adminUnsavedChanges++;
+    adminRender(`Completed all MAM research nodes for ${tree.name} (${count} new nodes unlocked)!`);
+}
+
+function adminCompleteAllMAMTrees() {
+    if (!adminData || !adminData.rawSave) return;
+    if (!confirm('Are you sure you want to complete all 8 MAM Research Trees in this save?')) return;
+
+    const count = unlockAllMAMTrees(adminData.rawSave);
+    if (count > 0) adminUnsavedChanges++;
+    adminRender(`Successfully completed all MAM Research Trees (${count} new nodes unlocked)!`);
+}
+
+function adminToggleMAMNode(nodePath) {
+    if (!adminData || !adminData.rawSave) return;
+    const sm = getSchematicManager(adminData.rawSave);
+    if (!sm) return;
+
+    if (!sm.properties) sm.properties = {};
+    if (!sm.properties.mPurchasedSchematics) {
+        sm.properties.mPurchasedSchematics = {
+            type: "ArrayProperty",
+            name: "mPurchasedSchematics",
+            propertyTagType: { name: "ArrayProperty", children: [{ name: "ObjectProperty", children: [] }] },
+            values: []
+        };
+    }
+    const vals = sm.properties.mPurchasedSchematics.values;
+    const idx = vals.findIndex(v => v.pathName === nodePath);
+    if (idx >= 0) {
+        vals.splice(idx, 1);
+        adminUnsavedChanges++;
+        adminRender('Locked research node.');
+    } else {
+        vals.push({ levelName: '', pathName: nodePath });
+        adminUnsavedChanges++;
+        adminRender('Unlocked research node.');
     }
 }
