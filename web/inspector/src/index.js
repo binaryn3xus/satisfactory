@@ -131,7 +131,7 @@ export const DIAGNOSTIC_RULES = [
             if (ctx.header.saveVersion >= 40) {
                 return {
                     status: 'pass',
-                    title: 'Unreal Engine 5 / v1.0+ Format',
+                    title: 'Unreal Engine 5 Save Format',
                     details: `Save format v${ctx.header.saveVersion} (Build ${ctx.header.buildVersion}) is current and supported.`
                 };
             }

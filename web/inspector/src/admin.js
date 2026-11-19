@@ -687,7 +687,7 @@ export function renderAdminWorkspaceHTML({
                             </span>
                         </div>
                         <div style="font-size:0.75rem; color:var(--text-muted);">
-                            Search &amp; select from all Satisfactory 1.0 items or discovered mod items
+                            Search &amp; select from all cataloged items or discovered mod items
                         </div>
                     </div>
 

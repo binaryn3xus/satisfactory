@@ -20,7 +20,7 @@ func writeFString(buf *bytes.Buffer, s string) {
 
 func TestParseHeaderBytesV14(t *testing.T) {
 	var buf bytes.Buffer
-	_ = binary.Write(&buf, binary.LittleEndian, int32(14))     // HeaderVersion (1.0+)
+	_ = binary.Write(&buf, binary.LittleEndian, int32(14))     // HeaderVersion (UE5 current format)
 	_ = binary.Write(&buf, binary.LittleEndian, int32(60))     // SaveVersion
 	_ = binary.Write(&buf, binary.LittleEndian, int32(502094)) // BuildVersion (CL)
 	writeFString(&buf, "Project-MJOLNIR_101026-163231")        // SaveName

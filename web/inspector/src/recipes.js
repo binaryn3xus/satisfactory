@@ -1,4 +1,4 @@
-// Satisfactory 1.0/1.1/1.2 Alternate Recipes & MAM Research Catalog
+// Satisfactory Alternate Recipes & MAM Research Catalog
 // Auto-extracted from dedicated server manifests
 
 export const ALTERNATE_RECIPES = [

@@ -19,7 +19,7 @@ func TestDetectChangelistFromVersionFile(t *testing.T) {
 		"PatchVersion": 2,
 		"Changelist": 517554,
 		"CompatibleChangelist": 517554,
-		"BranchName": "++FactoryGame+rel-main-1.0.0"
+		"BranchName": "++FactoryGame+rel-main"
 	}`
 	if err := os.WriteFile(filepath.Join(binDir, "FactoryServer-Linux-Shipping.version"), []byte(versionJSON), 0o644); err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func TestDetectChangelistFallbackToLog(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logContent := "LogInit: Build: ++FactoryGame+rel-main-1.0.0-CL-520123\n"
+	logContent := "LogInit: Build: ++FactoryGame+rel-main-CL-520123\n"
 	if err := os.WriteFile(filepath.Join(logDir, "FactoryGame.log"), []byte(logContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
