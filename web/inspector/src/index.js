@@ -7,7 +7,8 @@ import {
     renderAdminWorkspaceHTML,
     getAllAvailableItems,
     generatePortalSaveName,
-    formatSatisfactoryDate
+    formatSatisfactoryDate,
+    scanSaveForCrates
 } from './admin.js';
 import {
     ALTERNATE_RECIPES,
@@ -1729,7 +1730,14 @@ if (typeof window !== 'undefined') {
         toggleMAMTreeExpand: (id) => { adminExpandedMAMTree = (adminExpandedMAMTree === id ? null : id); adminRender(); },
         completeMAMTree: adminCompleteMAMTree,
         completeAllMAMTrees: adminCompleteAllMAMTrees,
-        toggleMAMNode: adminToggleMAMNode
+        toggleMAMNode: adminToggleMAMNode,
+        toggleCrateRadar: () => { adminShowCrateRadar = !adminShowCrateRadar; adminRender(); },
+        teleportCrate: adminTeleportCrate,
+        teleportAllCratesToHub: adminTeleportAllCratesToHub,
+        deleteCrate: adminDeleteCrate,
+        purgeEmptyCrates: adminPurgeEmptyCrates,
+        claimCrate: adminClaimCrate,
+        claimAllCrates: adminClaimAllCrates
     };
 }
 
@@ -1754,6 +1762,7 @@ let adminResearchTab = 'alternates';
 let adminAltCategory = 'all';
 let adminAltSearchQuery = '';
 let adminExpandedMAMTree = null;
+let adminShowCrateRadar = false;
 
 function updateAdminHeaderBadges() {
     const badge = document.getElementById('admin-changes-badge');
@@ -1812,7 +1821,8 @@ function adminRender(notice = '') {
         researchTab: adminResearchTab,
         altCategory: adminAltCategory,
         altSearchQuery: adminAltSearchQuery,
-        expandedMAMTree: adminExpandedMAMTree
+        expandedMAMTree: adminExpandedMAMTree,
+        showCrateRadar: adminShowCrateRadar
     });
 
     updateAdminHeaderBadges();
@@ -1848,6 +1858,7 @@ export async function initAdmin(urlOrFile, saveName, containerId = 'admin-worksp
         adminNoticeMsg = '';
         adminShowRawEditor = false;
         adminSelectedRawObj = null;
+        adminShowCrateRadar = false;
 
         adminRender();
     } catch (err) {
@@ -2526,6 +2537,7 @@ async function adminImportSave(file) {
         adminUnsavedChanges = 0;
         adminShowRawEditor = false;
         adminSelectedRawObj = null;
+        adminShowCrateRadar = false;
 
         // Update the admin save picker dropdown
         const saveSelect = document.getElementById('admin-save-select');
@@ -2727,4 +2739,347 @@ function adminToggleMAMNode(nodePath) {
         adminUnsavedChanges++;
         adminRender('Unlocked research node.');
     }
+}
+
+// =============================================================================
+// Death Crate & Loot Radar Actions
+// =============================================================================
+
+function adminTeleportCrate(crateInst) {
+    if (!adminData || !adminData.rawSave) return;
+    let hubPos = adminData.worldInfo.hubLocation;
+    if (!hubPos) hubPos = { x: 0, y: 0, z: 2000 };
+
+    const save = adminData.rawSave;
+    let found = false;
+    for (const lvl in save.levels) {
+        for (const obj of save.levels[lvl].objects) {
+            if (obj.instanceName === crateInst) {
+                if (!obj.transform) obj.transform = { rotation: [0, 0, 0, 1], translation: { x: 0, y: 0, z: 0 }, scale3d: { x: 1, y: 1, z: 1 } };
+                obj.transform.translation = {
+                    x: hubPos.x + 150,
+                    y: hubPos.y + 150,
+                    z: hubPos.z + 50
+                };
+                found = true;
+                break;
+            }
+        }
+        if (found) break;
+    }
+
+    if (found) {
+        adminUnsavedChanges++;
+        adminRender('Teleported crate to HUB safe coordinates!');
+    } else {
+        alert(`Could not find crate "${crateInst}" in save.`);
+    }
+}
+
+function adminTeleportAllCratesToHub() {
+    if (!adminData || !adminData.rawSave) return;
+    const crates = scanSaveForCrates(adminData.rawSave);
+    if (crates.length === 0) {
+        alert('No crates found in world to teleport.');
+        return;
+    }
+
+    let hubPos = adminData.worldInfo.hubLocation;
+    if (!hubPos) hubPos = { x: 0, y: 0, z: 2000 };
+
+    const save = adminData.rawSave;
+    let count = 0;
+    crates.forEach((c, idx) => {
+        const col = idx % 5;
+        const row = Math.floor(idx / 5);
+        const offsetX = 150 + col * 120;
+        const offsetY = 150 + row * 120;
+
+        for (const lvl in save.levels) {
+            for (const obj of save.levels[lvl].objects) {
+                if (obj.instanceName === c.instanceName) {
+                    if (!obj.transform) obj.transform = { rotation: [0, 0, 0, 1], translation: { x: 0, y: 0, z: 0 }, scale3d: { x: 1, y: 1, z: 1 } };
+                    obj.transform.translation = {
+                        x: hubPos.x + offsetX,
+                        y: hubPos.y + offsetY,
+                        z: hubPos.z + 50
+                    };
+                    count++;
+                    break;
+                }
+            }
+        }
+    });
+
+    adminUnsavedChanges++;
+    adminRender(`Teleported ${count} crate(s) to HUB safe coordinates!`);
+}
+
+function adminDeleteCrate(crateInst) {
+    if (!adminData || !adminData.rawSave) return;
+    if (!confirm(`Are you sure you want to permanently delete crate "${crateInst}" from the world?\n\nAny items inside will be destroyed.`)) return;
+
+    const save = adminData.rawSave;
+    const invCompName = `${crateInst}.inventory`;
+    let deleted = false;
+
+    for (const lvl in save.levels) {
+        const level = save.levels[lvl];
+        const initialCount = level.objects.length;
+        level.objects = level.objects.filter(obj => obj.instanceName !== crateInst && obj.instanceName !== invCompName);
+        if (level.objects.length < initialCount) {
+            deleted = true;
+        }
+    }
+
+    if (deleted) {
+        adminUnsavedChanges++;
+        adminRender(`Deleted crate "${crateInst}" and its inventory from the world.`);
+    } else {
+        alert(`Could not find crate "${crateInst}" in save.`);
+    }
+}
+
+function adminPurgeEmptyCrates() {
+    if (!adminData || !adminData.rawSave) return;
+    const crates = scanSaveForCrates(adminData.rawSave);
+    const emptyCrates = crates.filter(c => c.isEmpty);
+    if (emptyCrates.length === 0) {
+        alert('No empty crates found to purge.');
+        return;
+    }
+
+    if (!confirm(`Are you sure you want to purge ${emptyCrates.length} empty crate(s) from the world?`)) return;
+
+    const save = adminData.rawSave;
+    const emptyInsts = new Set();
+    for (const c of emptyCrates) {
+        emptyInsts.add(c.instanceName);
+        emptyInsts.add(`${c.instanceName}.inventory`);
+    }
+
+    for (const lvl in save.levels) {
+        const level = save.levels[lvl];
+        level.objects = level.objects.filter(obj => !emptyInsts.has(obj.instanceName));
+    }
+
+    adminUnsavedChanges++;
+    adminRender(`Purged ${emptyCrates.length} empty ghost crate(s) from the world!`);
+}
+
+function adminClaimCrate(crateInst, pioneerName) {
+    if (!adminData || !adminData.rawSave) return;
+    const targetName = pioneerName && pioneerName !== 'undefined' ? pioneerName : adminActivePioneerName;
+    const pioneer = adminData.pioneers.find(p => p.name === targetName) || adminData.pioneers[0];
+    if (!pioneer) {
+        alert('Could not find active pioneer.');
+        return;
+    }
+
+    const save = adminData.rawSave;
+    let { invObj, ps, stacks } = findPioneerInventory(pioneer, save);
+    if (!stacks) {
+        if (ps) {
+            const initialSlots = pioneer.primaryState?.inventorySlots || 63;
+            ps.properties = ps.properties || {};
+            ps.properties.mInventoryToRespawnWith = createRespawnInventoryStruct(initialSlots);
+            stacks = ps.properties.mInventoryToRespawnWith.value.properties.mInventoryStacks.values;
+        } else {
+            alert('Could not find inventory component for ' + pioneer.name);
+            return;
+        }
+    }
+
+    const invCompName = `${crateInst}.inventory`;
+    let crateInvObj = null;
+    let crateActorObj = null;
+
+    for (const lvl in save.levels) {
+        for (const obj of save.levels[lvl].objects) {
+            if (obj.instanceName === crateInst) {
+                crateActorObj = obj;
+            }
+            if (obj.instanceName === invCompName) {
+                crateInvObj = obj;
+            }
+        }
+        if (crateActorObj && crateInvObj) break;
+    }
+
+    if (!crateActorObj) {
+        alert(`Could not find crate "${crateInst}" in save.`);
+        return;
+    }
+
+    const crateStacks = crateInvObj?.properties?.mInventoryStacks?.values || [];
+    const occupiedStacks = crateStacks.filter(s => s.properties?.Item?.value?.itemReference?.pathName && (s.properties?.NumItems?.value || 0) > 0);
+
+    if (occupiedStacks.length === 0) {
+        if (confirm(`Crate "${crateInst}" is empty. Delete it from the world?`)) {
+            adminDeleteCrate(crateInst);
+        }
+        return;
+    }
+
+    let claimedStacks = 0;
+    let allowExpandPrompt = true;
+
+    for (const crateStack of occupiedStacks) {
+        const itemPath = crateStack.properties.Item.value.itemReference.pathName;
+        const qty = crateStack.properties.NumItems.value || 0;
+        if (!itemPath || qty <= 0) continue;
+
+        let emptySlot = stacks.find(s => !s.properties?.Item?.value?.itemReference?.pathName || s.properties?.NumItems?.value === 0);
+
+        if (!emptySlot && allowExpandPrompt) {
+            const remainingOccupied = occupiedStacks.length - claimedStacks;
+            const expand = confirm(`${pioneer.name}'s backpack is full (${stacks.length}/${stacks.length} slots)!\n\nWould you like to expand their backpack capacity by ${remainingOccupied} slot(s) to claim all remaining crate items?`);
+            if (expand) {
+                if (invObj?.properties?.mAdjustedSizeDiff) {
+                    invObj.properties.mAdjustedSizeDiff.value = (invObj.properties.mAdjustedSizeDiff.value || 0) + remainingOccupied;
+                }
+                if (ps?.properties?.mNumObservedInventorySlots) {
+                    ps.properties.mNumObservedInventorySlots.value = (ps.properties.mNumObservedInventorySlots.value || stacks.length) + remainingOccupied;
+                }
+                for (let i = 0; i < remainingOccupied; i++) {
+                    stacks.push({
+                        type: 'InventoryStack',
+                        properties: {
+                            Item: createInventoryItemStruct(''),
+                            NumItems: { type: 'IntProperty', name: 'NumItems', propertyTagType: { name: 'IntProperty', children: [] }, value: 0 }
+                        }
+                    });
+                }
+                emptySlot = stacks.find(s => !s.properties?.Item?.value?.itemReference?.pathName || s.properties?.NumItems?.value === 0);
+            } else {
+                allowExpandPrompt = false;
+            }
+        }
+
+        if (emptySlot) {
+            emptySlot.properties = {
+                Item: createInventoryItemStruct(itemPath),
+                NumItems: { type: 'IntProperty', name: 'NumItems', propertyTagType: { name: 'IntProperty', children: [] }, value: qty }
+            };
+            crateStack.properties.Item = createInventoryItemStruct('');
+            crateStack.properties.NumItems.value = 0;
+            claimedStacks++;
+        } else {
+            break;
+        }
+    }
+
+    const stillOccupied = crateStacks.filter(s => s.properties?.Item?.value?.itemReference?.pathName && (s.properties?.NumItems?.value || 0) > 0);
+    let crateDeleted = false;
+    if (stillOccupied.length === 0) {
+        for (const lvl in save.levels) {
+            save.levels[lvl].objects = save.levels[lvl].objects.filter(obj => obj.instanceName !== crateInst && obj.instanceName !== invCompName);
+        }
+        crateDeleted = true;
+    }
+
+    adminUnsavedChanges++;
+    if (crateDeleted) {
+        adminRender(`Claimed ${claimedStacks} stack(s) into ${pioneer.name}'s backpack! Crate was fully emptied and removed from world.`);
+    } else {
+        adminRender(`Claimed ${claimedStacks} stack(s) into ${pioneer.name}'s backpack (${stillOccupied.length} stack(s) remained in crate).`);
+    }
+}
+
+function adminClaimAllCrates(pioneerName) {
+    if (!adminData || !adminData.rawSave) return;
+    const targetName = pioneerName && pioneerName !== 'undefined' ? pioneerName : adminActivePioneerName;
+    const pioneer = adminData.pioneers.find(p => p.name === targetName) || adminData.pioneers[0];
+    if (!pioneer) {
+        alert('Could not find active pioneer.');
+        return;
+    }
+
+    const crates = scanSaveForCrates(adminData.rawSave);
+    const nonEmptyCrates = crates.filter(c => !c.isEmpty);
+    if (nonEmptyCrates.length === 0) {
+        alert('No crates with items found in world.');
+        return;
+    }
+
+    const save = adminData.rawSave;
+    let { invObj, ps, stacks } = findPioneerInventory(pioneer, save);
+    if (!stacks) {
+        if (ps) {
+            const initialSlots = pioneer.primaryState?.inventorySlots || 63;
+            ps.properties = ps.properties || {};
+            ps.properties.mInventoryToRespawnWith = createRespawnInventoryStruct(initialSlots);
+            stacks = ps.properties.mInventoryToRespawnWith.value.properties.mInventoryStacks.values;
+        } else {
+            alert('Could not find inventory component for ' + pioneer.name);
+            return;
+        }
+    }
+
+    let totalClaimedStacks = 0;
+    let emptiedCratesCount = 0;
+    let allowExpandPrompt = true;
+
+    for (const crate of nonEmptyCrates) {
+        const crateInst = crate.instanceName;
+        const invCompName = `${crateInst}.inventory`;
+        const crateInvObj = crate.rawInventory;
+        const crateStacks = crateInvObj?.properties?.mInventoryStacks?.values || [];
+        const occupiedStacks = crateStacks.filter(s => s.properties?.Item?.value?.itemReference?.pathName && (s.properties?.NumItems?.value || 0) > 0);
+
+        for (const crateStack of occupiedStacks) {
+            const itemPath = crateStack.properties.Item.value.itemReference.pathName;
+            const qty = crateStack.properties.NumItems.value || 0;
+            if (!itemPath || qty <= 0) continue;
+
+            let emptySlot = stacks.find(s => !s.properties?.Item?.value?.itemReference?.pathName || s.properties?.NumItems?.value === 0);
+
+            if (!emptySlot && allowExpandPrompt) {
+                const expand = confirm(`${pioneer.name}'s backpack is full (${stacks.length}/${stacks.length} slots)!\n\nWould you like to expand their backpack capacity by 10 slots to continue claiming crate items?`);
+                if (expand) {
+                    if (invObj?.properties?.mAdjustedSizeDiff) {
+                        invObj.properties.mAdjustedSizeDiff.value = (invObj.properties.mAdjustedSizeDiff.value || 0) + 10;
+                    }
+                    if (ps?.properties?.mNumObservedInventorySlots) {
+                        ps.properties.mNumObservedInventorySlots.value = (ps.properties.mNumObservedInventorySlots.value || stacks.length) + 10;
+                    }
+                    for (let i = 0; i < 10; i++) {
+                        stacks.push({
+                            type: 'InventoryStack',
+                            properties: {
+                                Item: createInventoryItemStruct(''),
+                                NumItems: { type: 'IntProperty', name: 'NumItems', propertyTagType: { name: 'IntProperty', children: [] }, value: 0 }
+                            }
+                        });
+                    }
+                    emptySlot = stacks.find(s => !s.properties?.Item?.value?.itemReference?.pathName || s.properties?.NumItems?.value === 0);
+                } else {
+                    allowExpandPrompt = false;
+                }
+            }
+
+            if (emptySlot) {
+                emptySlot.properties = {
+                    Item: createInventoryItemStruct(itemPath),
+                    NumItems: { type: 'IntProperty', name: 'NumItems', propertyTagType: { name: 'IntProperty', children: [] }, value: qty }
+                };
+                crateStack.properties.Item = createInventoryItemStruct('');
+                crateStack.properties.NumItems.value = 0;
+                totalClaimedStacks++;
+            } else {
+                break;
+            }
+        }
+
+        const stillOccupied = crateStacks.filter(s => s.properties?.Item?.value?.itemReference?.pathName && (s.properties?.NumItems?.value || 0) > 0);
+        if (stillOccupied.length === 0) {
+            for (const lvl in save.levels) {
+                save.levels[lvl].objects = save.levels[lvl].objects.filter(obj => obj.instanceName !== crateInst && obj.instanceName !== invCompName);
+            }
+            emptiedCratesCount++;
+        }
+    }
+
+    adminUnsavedChanges++;
+    adminRender(`Claimed ${totalClaimedStacks} stack(s) into ${pioneer.name}'s backpack! ${emptiedCratesCount} crate(s) emptied and removed from world.`);
 }

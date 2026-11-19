@@ -225,6 +225,62 @@ export function createRespawnInventoryStruct(slotCount = 63) {
     };
 }
 
+export function scanSaveForCrates(save) {
+    if (!save || !save.levels) return [];
+    const invMap = new Map();
+    for (const lvl in save.levels) {
+        for (const obj of save.levels[lvl].objects) {
+            if (obj.typePath && obj.typePath.includes('FGInventoryComponent')) {
+                invMap.set(obj.instanceName, obj);
+            }
+        }
+    }
+
+    const crates = [];
+    for (const lvl in save.levels) {
+        for (const obj of save.levels[lvl].objects) {
+            if (obj.typePath && (obj.typePath.includes('BP_Crate') || (obj.typePath.includes('Crate') && !obj.typePath.includes('Crater')))) {
+                const invCompName = `${obj.instanceName}.inventory`;
+                const invObj = invMap.get(invCompName);
+                const rawStacks = invObj?.properties?.mInventoryStacks?.values || [];
+                const occupiedStacks = rawStacks.filter(s => s.properties?.Item?.value?.itemReference?.pathName && s.properties?.NumItems?.value > 0);
+                
+                const items = occupiedStacks.map(s => {
+                    const path = s.properties.Item.value.itemReference.pathName;
+                    const qty = s.properties.NumItems.value || 0;
+                    return {
+                        path,
+                        name: friendlyItemName(path),
+                        qty
+                    };
+                });
+
+                const crateTypeVal = obj.properties?.mCrateType?.value?.value || '';
+                const isDeathCrate = crateTypeVal.includes('DeathCrate');
+                const isDismantleCrate = crateTypeVal.includes('DismantleCrate');
+
+                crates.push({
+                    instanceName: obj.instanceName,
+                    levelName: lvl,
+                    typePath: obj.typePath,
+                    isDeathCrate,
+                    isDismantleCrate,
+                    crateType: isDeathCrate ? 'Death Crate' : (isDismantleCrate ? 'Dismantle Overflow' : 'Loot Crate'),
+                    position: obj.transform?.translation || { x: 0, y: 0, z: 0 },
+                    items,
+                    totalItemsCount: items.reduce((acc, i) => acc + i.qty, 0),
+                    stacksCount: items.length,
+                    isEmpty: items.length === 0,
+                    rawActor: obj,
+                    rawInventory: invObj
+                });
+            }
+        }
+    }
+
+    return crates;
+}
+
 export function renderAdminWorkspaceHTML({ 
     data, 
     activePioneerName, 
@@ -242,10 +298,17 @@ export function renderAdminWorkspaceHTML({
     researchTab = 'alternates',
     altCategory = 'all',
     altSearchQuery = '',
-    expandedMAMTree = null
+    expandedMAMTree = null,
+    showCrateRadar = false
 }) {
     const { header, pioneers, rawPlayerStates, totalClones, worldInfo } = data;
     const corruptPlayers = rawPlayerStates.filter(p => p.hasCorruptRespawn);
+
+    // Crate Radar calculations
+    const crates = scanSaveForCrates(data.rawSave);
+    const deathCrates = crates.filter(c => c.isDeathCrate);
+    const dismantleCrates = crates.filter(c => c.isDismantleCrate);
+    const emptyCrates = crates.filter(c => c.isEmpty);
 
     // Research & MAM calculations
     const unlockedAltsCount = ALTERNATE_RECIPES.filter(a => isAlternateUnlocked(data.rawSave, a)).length;
@@ -462,7 +525,101 @@ export function renderAdminWorkspaceHTML({
                         🧹 Purge ${totalClones} Clone(s)
                     </button>` : ''}
             </div>
+
+            <!-- Crate & Loot Radar -->
+            <div style="background:#131a24; border:1px solid ${crates.length > 0 ? (deathCrates.length > 0 ? '#ef4444' : '#eab308') : 'var(--border)'}; border-radius:8px; padding:1.2rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
+                <div>
+                    <div style="display:flex; align-items:center; gap:0.5rem;">
+                        <span style="font-size:1.25rem;">${crates.length > 0 ? (deathCrates.length > 0 ? '💀' : '📦') : '✅'}</span>
+                        <strong style="color:${crates.length > 0 ? (deathCrates.length > 0 ? '#ef4444' : '#facc15') : '#4ade80'}; font-size:0.95rem;">
+                            Crate &amp; Loot Radar
+                        </strong>
+                    </div>
+                    <div style="font-size:0.82rem; color:var(--text-muted); margin-top:0.35rem;">
+                        ${crates.length > 0 
+                            ? `<span style="color:#fde047;">Found ${crates.length} dropped crate(s) in world (${deathCrates.length} death crate(s), ${dismantleCrates.length} dismantle overflow).</span>` 
+                            : 'World is clean. Zero lost death crates or dismantle boxes in world.'}
+                    </div>
+                </div>
+                ${crates.length > 0 ? `
+                    <div style="display:flex; gap:0.5rem; align-items:center;">
+                        <button class="btn btn-secondary" onclick="FicsitAdmin.toggleCrateRadar()" style="font-size:0.82rem;">
+                            ${showCrateRadar ? '▲ Hide Radar' : `📡 View Radar (${crates.length})`}
+                        </button>
+                        <button class="btn btn-primary" onclick="FicsitAdmin.teleportAllCratesToHub()" style="font-size:0.82rem;">
+                            🏠 Teleport All to HUB
+                        </button>
+                    </div>` : ''}
+            </div>
         </div>
+
+        <!-- Crate Radar Interactive Panel -->
+        ${crates.length > 0 && showCrateRadar ? `
+        <div style="background:#131a24; border:1px solid ${deathCrates.length > 0 ? 'rgba(239,68,68,0.5)' : 'var(--border)'}; border-radius:8px; padding:1.25rem; display:flex; flex-direction:column; gap:1rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem; border-bottom:1px solid var(--border); padding-bottom:0.75rem;">
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                    <span style="font-size:1.1rem;">📡</span>
+                    <strong style="color:#fff; font-size:1rem;">Active World Crates (${crates.length})</strong>
+                    <span style="font-size:0.75rem; color:var(--text-muted);">
+                        Total Items: ${crates.reduce((acc, c) => acc + c.totalItemsCount, 0).toLocaleString()}
+                    </span>
+                </div>
+                <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+                    <button class="btn btn-primary" onclick="FicsitAdmin.teleportAllCratesToHub()" style="font-size:0.82rem;">
+                        🏠 Teleport All Crates to HUB
+                    </button>
+                    <button class="btn btn-secondary" onclick="FicsitAdmin.claimAllCrates('${activePioneer?.name}')" style="font-size:0.82rem;">
+                        🎒 Claim All into ${activePioneer?.name}'s Backpack
+                    </button>
+                    ${emptyCrates.length > 0 ? `
+                    <button class="btn btn-secondary" onclick="FicsitAdmin.purgeEmptyCrates()" style="font-size:0.82rem; color:#f87171;">
+                        🧹 Purge ${emptyCrates.length} Empty Crate(s)
+                    </button>` : ''}
+                </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:0.85rem;">
+                ${crates.map(c => `
+                <div style="background:#0f141c; border:1px solid ${c.isDeathCrate ? 'rgba(239,68,68,0.4)' : 'var(--border)'}; border-radius:6px; padding:0.85rem; display:flex; flex-direction:column; gap:0.65rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                        <div>
+                            <div style="display:flex; align-items:center; gap:0.4rem;">
+                                <span style="font-size:0.8rem; background:${c.isDeathCrate ? 'rgba(239,68,68,0.2)' : 'rgba(234,179,8,0.2)'}; color:${c.isDeathCrate ? '#f87171' : '#facc15'}; border:1px solid ${c.isDeathCrate ? 'rgba(239,68,68,0.4)' : 'rgba(234,179,8,0.4)'}; padding:1px 6px; border-radius:4px; font-weight:700;">
+                                    ${c.isDeathCrate ? '💀 Death Crate' : '📦 Dismantle Overflow'}
+                                </span>
+                                <span style="font-size:0.75rem; color:var(--text-muted); font-family:monospace;">
+                                    ${c.stacksCount} stack(s) &bull; ${c.totalItemsCount.toLocaleString()} item(s)
+                                </span>
+                            </div>
+                            <div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.35rem; font-family:monospace;">
+                                Pos: (${Math.round(c.position.x)}, ${Math.round(c.position.y)}, ${Math.round(c.position.z)})
+                            </div>
+                        </div>
+                        <button class="btn btn-secondary" onclick="FicsitAdmin.deleteCrate('${c.instanceName}')" style="color:#ef4444; border-color:rgba(239,68,68,0.4); padding:2px 7px; font-size:0.75rem;" title="Delete this crate from the world">&times; Delete</button>
+                    </div>
+
+                    <!-- Items Preview -->
+                    <div style="background:#131a24; border-radius:4px; padding:0.5rem; max-height:110px; overflow-y:auto; display:flex; flex-direction:column; gap:0.25rem;">
+                        ${c.items.length === 0 ? '<span style="font-size:0.75rem; color:var(--text-muted);">Empty crate (0 items)</span>' : ''}
+                        ${c.items.map(item => `
+                        <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.76rem;">
+                            <span style="color:#e2e8f0;">${item.name}</span>
+                            <span style="color:#a7f3d0; font-family:monospace; font-weight:700;">x${item.qty.toLocaleString()}</span>
+                        </div>`).join('')}
+                    </div>
+
+                    <!-- Crate Action Buttons -->
+                    <div style="display:flex; gap:0.4rem; justify-content:flex-end;">
+                        <button class="btn btn-secondary" onclick="FicsitAdmin.teleportCrate('${c.instanceName}')" style="font-size:0.75rem; padding:0.3rem 0.65rem;">
+                            🏠 Teleport to HUB
+                        </button>
+                        <button class="btn btn-primary" onclick="FicsitAdmin.claimCrate('${c.instanceName}', '${activePioneer?.name}')" style="font-size:0.75rem; padding:0.3rem 0.65rem;">
+                            🎒 Claim into Backpack
+                        </button>
+                    </div>
+                </div>`).join('')}
+            </div>
+        </div>` : ''}
 
         <!-- 2. Pioneer Operations & Visual Inventory Workspace -->
         <div style="display:grid; grid-template-columns:280px 1fr; gap:1.25rem; align-items:start;" class="admin-pioneer-workspace">

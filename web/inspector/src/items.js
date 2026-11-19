@@ -1239,7 +1239,7 @@ export function friendlyItemName(path) {
     if (modMap[clean]) return modMap[clean];
 
     // Split CamelCase into readable words
-    return clean.replace(/([a-z])([A-Z])/g, ' ').trim();
+    return clean.replace(/([a-z])([A-Z])/g, '$1 $2').trim();
 }
 
 /**
