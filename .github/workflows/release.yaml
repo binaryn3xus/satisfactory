@@ -4,11 +4,13 @@ on:
   release:
     types: [published]
   push:
-    tags: ["v*"]
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+*"
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
-        description: "SemVer version to release (e.g. 0.1.0 or v0.1.0). Leave blank to use Chart.yaml."
+        description: "SemVer version to release (e.g. 0.3.1). Leave blank to use Chart.yaml."
         required: false
         type: string
         default: ""
@@ -80,11 +82,11 @@ jobs:
 
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CLEAN_VER"
           echo "version=${CLEAN_VER}" >> "$GITHUB_OUTPUT"
-          echo "tag=v${CLEAN_VER}" >> "$GITHUB_OUTPUT"
+          echo "tag=${CLEAN_VER}" >> "$GITHUB_OUTPUT"
           echo "major=${MAJOR}" >> "$GITHUB_OUTPUT"
           echo "major_minor=${MAJOR}.${MINOR}" >> "$GITHUB_OUTPUT"
 
-          echo "Target Release Version: ${CLEAN_VER} (Tag: v${CLEAN_VER})"
+          echo "Target Release Version: ${CLEAN_VER} (Tag: ${CLEAN_VER})"
 
   publish-images:
     name: Build & Push Images (${{ matrix.component }})
