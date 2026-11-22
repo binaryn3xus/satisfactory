@@ -152,7 +152,14 @@ create_pre_update_backup() {
 ACF_FILE="${GAMEFILES_DIR}/steamapps/appmanifest_1690800.acf"
 LOCAL_BUILD_ID=""
 if [ -f "$ACF_FILE" ]; then
-    LOCAL_BUILD_ID="$(awk -F'"' '/"buildid"/ {print $4; exit}' "$ACF_FILE" || true)"
+    UPDATE_RESULT="$(awk -F'"' '/"UpdateResult"/ {print $4; exit}' "$ACF_FILE" || true)"
+    if [ -n "$UPDATE_RESULT" ] && [ "$UPDATE_RESULT" != "0" ]; then
+        echo "==> Detected stale/interrupted Steam update state in appmanifest (UpdateResult=${UPDATE_RESULT}). Purging manifest..."
+        rm -f "$ACF_FILE"
+        STEAM_VALIDATE="true"
+    else
+        LOCAL_BUILD_ID="$(awk -F'"' '/"buildid"/ {print $4; exit}' "$ACF_FILE" || true)"
+    fi
 fi
 
 OLD_CL="$(ficsit-ctl detect-changelist 2>/dev/null || echo "")"
@@ -201,9 +208,19 @@ if [ "$NEED_STEAM_UPDATE" = "true" ]; then
 
     echo "==> Running SteamCMD update..."
     if ! steamcmd "${STEAM_ARGS[@]}"; then
-        echo "==> SteamCMD returned an error on first attempt (refreshing appcache and retrying once)..."
-        rm -rf "$HOME/.local/share/Steam/appcache" 2>/dev/null || true
-        steamcmd "${STEAM_ARGS[@]}"
+        echo "==> SteamCMD returned an error on first attempt (clearing appcache, purging stale manifest, and retrying with validation)..."
+        rm -rf "$HOME/.local/share/Steam/appcache" "$ACF_FILE" 2>/dev/null || true
+        RETRY_ARGS=(
+            "+force_install_dir" "$GAMEFILES_DIR"
+            "+login" "anonymous"
+            "+app_update" "1690800"
+            "-beta" "$STEAM_BRANCH"
+        )
+        if [ -n "${STEAM_BETA_PASSWORD:-}" ]; then
+            RETRY_ARGS+=("-betapassword" "$STEAM_BETA_PASSWORD")
+        fi
+        RETRY_ARGS+=("validate" "+quit")
+        steamcmd "${RETRY_ARGS[@]}"
     fi
 
     NEW_CL="$(ficsit-ctl detect-changelist 2>/dev/null || echo "")"

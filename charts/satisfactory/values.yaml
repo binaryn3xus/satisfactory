@@ -124,6 +124,8 @@ portal:
 
   title: "" # Defaults to server.config.serverName
   port: 8081
+  # Mount /config as readOnly in portal container (set to true to block save writes)
+  readOnly: false
   # Optional FicsitRemoteMonitoring (FRM) endpoint if FRM mod is installed.
   # Note: FRM listens on port 8080 by default, so portal defaults to 8081 to prevent port collisions.
   frmApiUrl: ""
