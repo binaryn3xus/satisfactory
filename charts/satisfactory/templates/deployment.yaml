@@ -160,6 +160,24 @@ spec:
             - name: SERVER_API_TOKEN
               value: {{ .Values.server.apiToken.value | quote }}
             {{- end }}
+            {{- if and .Values.portal.adminPassword (kindIs "map" .Values.portal.adminPassword) }}
+              {{- if .Values.portal.adminPassword.existingSecret }}
+            - name: PORTAL_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.portal.adminPassword.existingSecret }}
+                  key: {{ .Values.portal.adminPassword.secretKey | default "ADMIN_PASSWORD" }}
+              {{- else if .Values.portal.adminPassword.value }}
+            - name: PORTAL_ADMIN_PASSWORD
+              value: {{ .Values.portal.adminPassword.value | quote }}
+              {{- end }}
+            {{- else if .Values.portal.adminPassword }}
+            - name: PORTAL_ADMIN_PASSWORD
+              value: {{ .Values.portal.adminPassword | quote }}
+            {{- end }}
+            {{- with .Values.portal.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "satisfactory.fullname" . }}-env

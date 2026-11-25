@@ -130,6 +130,16 @@ portal:
   # Note: FRM listens on port 8080 by default, so portal defaults to 8081 to prevent port collisions.
   frmApiUrl: ""
 
+  # Optional Admin Password for /admin control center
+  # When unset, /admin operates in open-access mode.
+  adminPassword:
+    value: ""
+    existingSecret: ""
+    secretKey: "ADMIN_PASSWORD"
+
+  # Additional environment variables for the portal container
+  extraEnv: []
+
   securityContext:
     runAsUser: 1000
     runAsGroup: 1000
