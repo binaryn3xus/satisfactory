@@ -49,6 +49,7 @@ services:
     environment:
       PORTAL_PORT: "8081"
       PORT: "8081"
+      PORTAL_ADMIN_PASSWORD: "${PORTAL_ADMIN_PASSWORD:-}"
       SERVER_API_URL: "https://satisfactory-server:${SERVER_GAME_PORT:-7777}"
       SMM_PROFILE_NAME: "${MODS_PROFILE:-default}"
       MODS_CLIENT_ONLY: "${MODS_CLIENT_ONLY:-}"

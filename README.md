@@ -62,7 +62,8 @@ All images and the Helm chart are built from this repository and published to Gi
   Automatically syncs mounted TLS certificates from `/certs` into `FactoryGame/Certificates` (no Kubernetes `initContainer` needed) and calls Satisfactory's HTTPS API (`SaveGame`) before shutting down when `SERVER_API_TOKEN` is configured.
 - **Save, Mod & Blueprint Web Portal (`satisfactory-portal`):**
   - **Live Status & Pioneer Tracker:** Combines the Satisfactory HTTPS API with a real-time `FactoryGame.log` parser to show **Who's Online** and **Recently Seen** on both Vanilla and Modded servers (and automatically enriches with ping/power telemetry if `FicsitRemoteMonitoring` is active).
-  - **Binary `.sav` Header Inspector:** Reads uncompressed `.sav` headers to display Session Name, Total Playtime (`76h 06m`), and Build Changelist alongside one-click **SCIM Interactive Map** links.
+  - **Admin Control Center (`/admin`):** Password-protected (`PORTAL_ADMIN_PASSWORD` / `portal.adminPassword`) web console featuring live dedicated server `.sav` upload, server `LoadGame` execution, interactive Death Crate & Loot Radar (teleport, claim, purge), and MAM alternate recipe research station.
+  - **Binary `.sav` Header & Web Inspector:** Reads `.sav` headers for session name, playtime, and changelist with one-click **SCIM Interactive Map** links and built-in client-side save inspection.
   - **One-Click `.smmprofile` Export:** Dynamically builds a live `.smmprofile` from the server's lockfile (plus optional `MODS_CLIENT_ONLY` QoL mods) for one-click import into Desktop Satisfactory Mod Manager.
   - **Blueprints Browser & `.zip` Streamer:** Parses `.sbp` + `.sbpcfg` descriptions and streams single or full-server blueprint `.zip` bundles.
   - **Prometheus `/metrics`:** Exposes tick rate, connected players, tech tier, mod count, save size, playtime, and blueprint count.
@@ -319,7 +320,12 @@ spec:
 | `portal.image.repository` | `ghcr.io/binaryn3xus/satisfactory-portal` | Portal container image |
 | `portal.image.tag` | `""` | Defaults to `.Chart.AppVersion` |
 | `portal.port` | `8081` | HTTP portal listen port (defaults to `8081` to avoid collision with FRM on `8080`) |
+| `portal.readOnly` | `false` | Mount `/config` as read-only in portal container (set to `true` to block save writes) |
 | `portal.frmApiUrl` | `""` | Optional FicsitRemoteMonitoring URL |
+| `portal.adminPassword.value` | `""` | Optional plain admin password for `/admin` (when unset, `/admin` is in open-access mode) |
+| `portal.adminPassword.existingSecret` | `""` | Kubernetes Secret name containing portal admin password |
+| `portal.adminPassword.secretKey` | `ADMIN_PASSWORD` | Key inside `existingSecret` |
+| `portal.extraEnv` | `[]` | Additional environment variables for the portal container |
 | `portal.securityContext.readOnlyRootFilesystem` | `true` | Hardened read-only container root |
 | `portal.route.enabled` | `false` | Enable Gateway API `HTTPRoute` |
 | `portal.ingress.enabled` | `false` | Enable Kubernetes `Ingress` |
@@ -548,6 +554,7 @@ services:
 | :--- | :--- | :--- |
 | `PORTAL_PORT` | `8081` | HTTP port the web portal listens on (alias: `PORT`). Default `8081` avoids collision with FRM on `8080`. |
 | `PORTAL_TITLE` | `SERVER_NAME` | Optional web portal header title override. |
+| `PORTAL_ADMIN_PASSWORD` | `""` | Optional password for `/admin` control center (alias: `ADMIN_PASSWORD`). When unset, `/admin` operates in open-access mode. |
 | `SERVER_NAME` | `MODS_PROFILE` | Default server display name in portal header. |
 | `SMM_PROFILE_NAME` | `MODS_PROFILE` | Profile name stamped inside exported `.smmprofile` download files (alias: `MODS_PROFILE`). |
 | `SERVER_API_URL` | `https://127.0.0.1:7777` | HTTPS URL of Satisfactory Dedicated Server's API. |
@@ -592,6 +599,11 @@ For convenience and compatibility with community setups, the following common en
 | Route | Method | Description |
 | :--- | :--- | :--- |
 | `/` | `GET` | Web dashboard (online players, tech tier, playtime, save files, blueprints). |
+| `/admin` | `GET` | Admin Control Center (save manager, MAM research, death crate loot radar). |
+| `/admin/login` | `GET, POST` | Admin authentication login portal. |
+| `/admin/logout` | `POST` | Log out and clear session cookie. |
+| `/admin/api/upload-save` | `POST` | Upload and install a `.sav` file directly to the dedicated server. |
+| `/admin/api/load-game` | `POST` | Trigger dedicated server HTTPS API to load a save file. |
 | `/favicon.svg` | `GET` | FICSIT isometric chamfered chevron SVG icon. |
 | `/favicon.ico` | `GET` | Favicon endpoint (served with `image/svg+xml`). |
 | `/healthz` | `GET` | Portal liveness/readiness probe (`200 OK`). |
